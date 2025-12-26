@@ -1,0 +1,403 @@
+NestJS Proposal Generation Backend - Technical Plan
+High-Level Architecture
+Core Modules
+Proposals Module: Main API endpoints and orchestration
+Queue Module: BullMQ job management and workers
+AI Module: LangChain agent execution (3 agents)
+Storage Module: File handling (Supabase Storage, Gemini File Store)
+Template Module: HTML+CSS template management and rendering
+PDF Module: HTML-to-PDF generation
+Knowledge Base Module: Gemini File Search Store integration
+Queue Architecture
+Main Queue: proposal-generation (BullMQ with Redis)
+Worker Jobs: Sequential job steps preserving exact n8n execution order
+Job States: pending, processing, completed, failed
+Retry Strategy: Exponential backoff, max 3 retries per step
+Data Flow
+POST /proposals/generate
+  → Create Proposal entity (state: processing)
+  → Enqueue main job to BullMQ
+  → Return proposal_id immediately
+
+Worker processes job:
+    1. Data extraction & formatting
+    2. Knowledge base setup (if audio/docs exist)
+    3. AI agent execution (parallel where possible)
+    4. Data merging & cleaning
+    5. Google Docs generation
+    6. PDF export & storage
+    7. Update Proposal entity (state: completed, pdf_url)
+
+GET /proposals/:id/result
+  → Query Proposal entity
+  → Return { state, output?, pdf_url? }
+
+
+Detailed Node-to-Service Mapping
+1. Webhook → ProposalsController
+File: src/proposals/proposals.controller.ts
+
+Endpoint: POST /proposals/generate
+Method: generateProposal(@Body() dto: GenerateProposalDto)
+Action: 
+Validate user_id, proposal_id, and template_id (required)
+All other fields optional (can be null/undefined)
+Create Proposal entity with state processing
+Enqueue job to BullMQ queue proposal-generation
+Return { proposal_id } immediately
+2. Data extension → ProposalsService.extractWebhookData()
+File: src/proposals/proposals.service.ts
+
+Extract all fields from webhook body exactly as n8n does
+Fields: title, client_name, client_email, links, industry, summary, goals, scope, deliverables, milestones, team_members, start_date, end_date, date_of_proposal, submitted_to, proposal_id, user_id, template_id, audio_storage_paths, document_storage_paths
+Note: audio_storage_paths and document_storage_paths are arrays (can be empty or contain multiple paths)
+Store in job data context
+3. Code (UUID) → UtilsService.generateFilename()
+File: src/common/utils.service.ts
+
+Generate UUID v4 for file store name
+Exact same logic: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+4. Create File Store1 → KnowledgeBaseService.createFileStore()
+File: src/knowledge-base/knowledge-base.service.ts
+
+API: POST https://generativelanguage.googleapis.com/v1beta/fileSearchStores
+Auth: Query param with API key (Google Gemini API)
+Body: { displayName: filename }
+Response: Returns { name: "fileStores/..." } - this is the file store identifier
+CRITICAL: Store returned name field in job context as fileStoreName
+This fileStoreName will be reused by both Move to Store2 (audio) and Move to Store3 (documents)
+5. !!audio1 → Conditional Logic
+File: src/proposals/processors/proposal.processor.ts
+
+Check if audio_storage_paths exists and is array with items
+If true: execute audio processing loop
+If false: skip to document check
+6. Set Audio Path1 → Data Transformation
+File: src/proposals/processors/proposal.processor.ts
+
+Extract audio_storage_paths array
+Store as audios array in job context
+7. Split Audio(s) Path1 → Loop Preparation
+File: src/proposals/processors/proposal.processor.ts
+
+Transform audios array: audios.map(a => ({ audio: a }))
+Prepare for batch processing
+8. Loop Over Audio Items → Batch Processor
+File: src/proposals/processors/proposal.processor.ts
+
+Process each audio file sequentially
+Loop through all audio files: Download → Transcribe → Convert → Upload to Gemini → Import to file store
+Continue loop until ALL audio files are processed and imported
+CRITICAL: Do NOT trigger AI agents during this loop - wait until all audio files are uploaded
+9. Download Audio1 → StorageService.downloadAudio()
+File: src/storage/storage.service.ts
+
+URL: audio from loop item
+Headers: apikey: <Supabase anon key> (from config)
+Response: Binary file buffer
+Store buffer in job context as audio_file
+10. Audio Transcribe → AIService.transcribeAudio()
+File: src/ai/ai.service.ts
+
+Use OpenAI Whisper API (same as n8n)
+Input: Binary audio file buffer
+Output: Transcribed text string
+Store text in job context as audio_text
+11. Convert to File1 → UtilsService.textToFileBuffer()
+File: src/common/utils.service.ts
+
+Convert transcribed text string to file buffer
+MIME type: text/plain
+Store buffer in job context
+12. Upload Doc2 → KnowledgeBaseService.uploadFile()
+File: src/knowledge-base/knowledge-base.service.ts
+
+API: POST https://generativelanguage.googleapis.com/upload/v1beta/files
+Auth: Query param with API key
+Content-Type: application/json
+Body: Binary data (audio_text buffer)
+Store returned file object in job context
+13. Move to Store2 → KnowledgeBaseService.importFile()
+File: src/knowledge-base/knowledge-base.service.ts
+
+API: POST https://generativelanguage.googleapis.com/v1beta/{fileStoreName}:importFile
+fileStoreName: Use the name field from Create File Store1 (step 4) - stored in job context
+Body: { file_name: file.name } (where file.name comes from Upload Doc2 response)
+Purpose: Import the uploaded audio transcription file into the file store created in step 4
+Link uploaded file to file store
+Loop continues to next audio file (if any)
+11. !!docs1 → Conditional Logic
+File: src/proposals/processors/proposal.processor.ts
+
+Check if document_storage_paths exists and is array with items
+If true: execute document processing loop
+If false: proceed to AI agent execution
+12. Set Doc Path1 → Data Transformation
+File: src/proposals/processors/proposal.processor.ts
+
+Extract document_storage_paths array
+Store as docs array in job context
+13. Split Doc(s) Path1 → Loop Preparation
+File: src/proposals/processors/proposal.processor.ts
+
+Transform docs array: docs.map(d => ({ doc: d }))
+Prepare for batch processing
+14. Loop Over Items1 → Batch Processor
+File: src/proposals/processors/proposal.processor.ts
+
+Process each document sequentially
+Loop through all documents: Download → Upload to Gemini → Import to file store
+Continue loop until ALL documents are processed and imported
+CRITICAL: Do NOT trigger AI agents during this loop - wait until all documents are uploaded
+15. Download Docs1 → StorageService.downloadDocument()
+File: src/storage/storage.service.ts
+
+URL: doc from loop item
+Download binary file buffer
+Store in job context
+16. Upload Doc3 → KnowledgeBaseService.uploadFile()
+File: src/knowledge-base/knowledge-base.service.ts
+
+Same as Upload Doc2 but for document files
+Input: Document binary buffer
+Store returned file object
+17. Move to Store3 → KnowledgeBaseService.importFile()
+File: src/knowledge-base/knowledge-base.service.ts
+
+API: POST https://generativelanguage.googleapis.com/v1beta/{fileStoreName}:importFile
+fileStoreName: Use the SAME name field from Create File Store1 (step 4) - stored in job context
+Body: { file_name: file.name } (where file.name comes from Upload Doc3 response)
+Purpose: Import the uploaded document file into the SAME file store created in step 4
+CRITICAL: Both audio files and documents are imported into the same file store, allowing the Knowledge Base tool to search across all uploaded content
+Loop continues to next document (if any)
+18. General Information Generator → AIService.executeGeneralInfoAgent()
+File: src/ai/agents/general-info.agent.ts
+
+LangChain Agent with:
+Model: OpenAI GPT-4o-mini (via LangChain)
+Memory: BufferWindowMemory (session key = proposal_id)
+Output Parser: StructuredOutputParser with JSON schema
+System Prompt: Exact prompt from n8n (lines 670-671)
+User Prompt: Template with webhook data (line 667)
+Output Schema:
+              {
+                "executive-summary": "string",
+                "objectives": "string",
+                "training-and-support": "string",
+                "team-structure-min-experiance": "string",
+                "team-structure-table": [{
+                  "Designation": "string",
+                  "Count": "string",
+                  "Key Responsibilities": "string",
+                  "Experience": "string"
+                }]
+              }
+
+
+Execute in parallel with Scope Generation (if possible)
+Store output in job context
+19. Adding Team-Structure Heading → DataTransformService.addTeamHeader()
+File: src/common/data-transform.service.ts
+
+Add header row to team-structure-table:
+              {
+                "Designation": "Designation",
+                "Count": "Count",
+                "Key Responsibilities": "Key Responsibilities",
+                "Experience": "Experience"
+              }
+
+
+Use unshift() to add at beginning of array
+20. Scope Generation → AIService.executeScopeAgent()
+File: src/ai/agents/scope.agent.ts
+
+LangChain Agent with:
+Model: OpenAI GPT-4o-mini
+Memory: BufferWindowMemory (session key = proposal_id)
+Output Parser: StructuredOutputParser
+Tool: Knowledge Base HTTP Request Tool
+System Prompt: Exact prompt from n8n (lines 597-598)
+User Prompt: Template with webhook data (line 594)
+Tool Implementation: 
+File: src/ai/tools/knowledge-base.tool.ts
+API: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
+Body: `{ contents: [{ parts: [{ text: query }] }], tools: [{ file_search: { file_search_store_names: [fileStoreName] } }] }`
+Execution: Agent will invoke this tool multiple times (each invocation = one HTTP request to Gemini)
+Each tool call searches the file store (containing all uploaded audio transcriptions from all audio files and all documents) for relevant information
+Agent continues calling tool until it has sufficient information to generate the scope
+Output Schema:
+              {
+                "scope-of-work-introduction": "string",
+                "scope-of-work-summary": "string",
+                "scope-of-work": "string",
+                "scope-of-work-main-points": "string"
+              }
+
+
+CRITICAL: Agent MUST call KB tool multiple times (not infinitely) via HTTP requests
+Each KB query asks specific questions to gather information from uploaded files (all audio transcriptions + all documents)
+Agent continues querying KB until it has gathered sufficient information to generate complete scope
+KB tool makes HTTP requests to Gemini API with file_search enabled, searching across all uploaded content (all audio files + all documents)
+Agent uses the gathered KB information to generate scope-of-work sections
+Store output in job context
+21. Timeline Generation → AIService.executeTimelineAgent()
+File: src/ai/agents/timeline.agent.ts
+
+LangChain Agent with:
+Model: OpenAI GPT-4o-mini
+Memory: BufferWindowMemory (session key = proposal_id)
+Output Parser: StructuredOutputParser
+System Prompt: Exact prompt from n8n (lines 644-645)
+User Prompt: Uses scope-of-work-main-points from Scope Generation output (line 641)
+Output Schema:
+              {
+                "duration-business-days": "string",
+                "implementation-timeline-table": [{
+                  "phase": "string",
+                  "scope": "string",
+                  "timeline": "string"
+                }]
+              }
+
+
+Dependency: Must execute AFTER Scope Generation completes
+Store output in job context
+22. Adding Timeline Heading → DataTransformService.addTimelineHeader()
+File: src/common/data-transform.service.ts
+
+Add header row to implementation-timeline-table:
+              {
+                "phase": "Phase",
+                "scope": "Activities",
+                "timeline": "Duration"
+              }
+
+
+Use unshift() to add at beginning of array
+23. Data extension Formatting → NOT NEEDED
+Note: In n8n, this step wrapped webhook data because n8n couldn't access webhook data later in the workflow. In NestJS, we can access webhook data directly from job context, so this wrapping step is not needed.
+
+Webhook data remains accessible throughout the job execution
+No transformation needed - use webhook data directly
+24. Merge → DataTransformService.mergeOutputs()
+File: src/common/data-transform.service.ts
+
+Merge 4 inputs:
+Index 0: Webhook data (directly from request, all original fields)
+Index 1: Adding Team-Structure Heading output (contains team-structure-table with header)
+Index 2: Scope Generation output (contains scope fields)
+Index 3: Adding Timeline Heading output (contains implementation-timeline-table with header)
+Logic: Merge all properties from all inputs into single object
+Result: Combined object with webhook fields + AI-generated fields + table headers
+25. Data Cleaning → DataTransformService.cleanData()
+File: src/common/data-transform.service.ts
+
+The Merge step already produces the final combined object
+This step may not be needed if Merge handles everything, OR it can be a simple pass-through/flattening step
+Result contains all proposal fields ready for template (webhook data + AI outputs merged)
+26. Fetch Template → TemplateService.fetchTemplate()
+File: src/templates/template.service.ts
+
+API: Supabase Database
+Table: templates
+Query: Fetch template by template_id from request
+Fields: 
+template_id (UUID, PK)
+template_design (string) - Contains HTML code with embedded CSS via <style> tags
+template_name (string)
+created_at, updated_at (timestamps)
+created_by, updated_by (FK to users)
+tags (array)
+proposals_generated (number)
+Primary Field: template_design - This field contains the complete HTML template with CSS embedded in <style> tags within the HTML
+Store template_design (HTML with embedded CSS) in job context
+27. Render Template → TemplateService.renderTemplate()
+File: src/templates/template.service.ts
+
+Input: template_design (HTML with embedded CSS via <style> tags) from step 26, merged proposal data from step 25
+Process: Replace placeholders in HTML template with merged data
+Note: CSS is already embedded in the HTML via <style> tags, so no separate CSS processing needed
+Placeholders: Use same mapping as n8n (but in HTML template format):
+{{ project-title }} → title
+{{ date-of-proposal }} → date_of_proposal
+{{ submitted-to }} → `submitted_to ` (note trailing space)
+{{ executive-summary }} → executive-summary
+{{ objectives }} → objectives
+{{ scope-of-work-introduction }} → scope-of-work-introduction
+{{ scope-of-work-summary }} → scope-of-work-summary
+{{ scope-of-work }} → scope-of-work (markdown, render to HTML)
+{{ estimated-go-live }} → end_date
+{{ training-and-support }} → training-and-support
+{{ estimated-project-start-date }} → start_date
+{{ duration-business-days }} → duration-business-days
+{{ team-structure-min-experiance }} → team-structure-min-experiance
+{{ team-structure-table }} → Render table from array data
+{{ implementation-timeline-table }} → Render table from array data
+Output: Complete HTML document with embedded CSS
+Store rendered HTML in job context
+28. Generate PDF → PDFService.generateFromHTML()
+File: src/pdf/pdf.service.ts
+
+Library: Puppeteer or similar HTML-to-PDF library
+Input: Rendered HTML from step 27 (contains embedded CSS via <style> tags)
+Process: 
+Launch headless browser (Puppeteer) or use library
+Render HTML with embedded CSS (CSS already in <style> tags within HTML)
+Generate PDF with proper page breaks, margins
+Handle table rendering, markdown conversion (scope-of-work markdown to HTML)
+Output: PDF buffer
+Store PDF buffer in job context
+30. Upload PDF to Storage → StorageService.uploadPDF()
+File: src/storage/storage.service.ts
+
+API: Supabase Storage
+Path: generated-proposals/{user_id}/proposals/{proposal_id}/proposal.pdf
+Upload PDF buffer
+Generate public URL
+Store URL in Proposal entity
+31. Update Proposal Entity → ProposalsService.completeProposal()
+File: src/proposals/proposals.service.ts
+
+Update Proposal entity:
+state: completed
+output: Merged data object
+pdf_url: Public URL from storage
+completed_at: Timestamp
+Data Model
+Proposal Entity
+File: src/proposals/entities/proposal.entity.ts
+
+{
+  id: string; // proposal_id (UUID)
+  user_id: string; // Required
+  state: 'processing' | 'completed' | 'failed';
+  output?: JSON; // All merged proposal data
+  pdf_url?: string;
+  created_at: Date;
+  completed_at?: Date;
+  error?: string;
+  // Optional fields stored in output JSON:
+  // title, client_name, client_email, links, industry, summary, goals, 
+  // scope, deliverables, milestones, team_members, start_date, end_date,
+  // date_of_proposal, submitted_to, executive-summary, objectives, etc.
+}
+
+
+Job Lifecycle & Execution Order
+Job Steps (Sequential, Preserving n8n Order)
+Extract & Store Data: Extract webhook fields, store directly in job context (no wrapping needed - accessible throughout job)
+Generate Filename: UUID v4 for file store
+Create File Store: Create Gemini File Search Store
+Store returned name field in job context as fileStoreName
+This same file store name will be reused for all file imports
+Process Audio Files (conditional, loop):
+For each audio file:
+Download audio
+Transcribe
+Convert to file
+Upload to Gemini
+Import to file store (using fileStoreName from step 3)
+CRITICAL: Complete ALL audio file uploads before proceeding to documents
+Process Documents (conditional, loop):
+For each document:
