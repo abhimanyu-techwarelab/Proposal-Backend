@@ -20,7 +20,7 @@ export class GeneralInfoAgent {
     }>;
   }> {
     const startTime = Date.now();
-    this.logger.log(`[GENERAL-INFO] Starting agent for proposal: ${jobData.proposal_id}`);
+    this.logger.log(`[GENERAL-INFO] Starting agent for proposal: ${jobData.id}`);
 
     const systemPrompt = `You are a professional proposal writer. Your task is to generate professional content for a business proposal based on the provided information. You must respond with valid JSON only, no markdown or additional text.
 
@@ -29,7 +29,7 @@ Output the following JSON structure:
   "executive-summary": "A compelling executive summary paragraph",
   "objectives": "Clear project objectives",
   "training-and-support": "Training and support details",
-  "team-structure-min-experiance": "Minimum experience requirements for the team",
+  "team-structure-min-experiance": "Minimum experience requirements for the team**ONLY NUMBER",
   "team-structure-table": [
     {
       "Designation": "Role title",
@@ -75,11 +75,13 @@ Please generate the executive summary, objectives, training and support section,
 
       this.logger.log(`[GENERAL-INFO] OpenAI response received - ${tokensUsed} tokens used`);
       this.logger.debug(`[GENERAL-INFO] Response content length: ${content.length} chars`);
+      this.logger.log(`[GENERAL-INFO] Raw response: ${content}`);
 
       const parsed = JSON.parse(content);
 
       this.logger.log(`[GENERAL-INFO] Parsed output keys: ${Object.keys(parsed).join(', ')}`);
       this.logger.log(`[GENERAL-INFO] Team structure rows: ${parsed['team-structure-table']?.length || 0}`);
+      this.logger.log(`[GENERAL-INFO] Parsed response: ${JSON.stringify(parsed, null, 2)}`);
       this.logger.log(`[GENERAL-INFO] Agent completed in ${Date.now() - startTime}ms`);
 
       return parsed;

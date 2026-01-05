@@ -59,7 +59,7 @@ export class AIService {
       Experience: string;
     }>;
   }> {
-    this.logger.log(`Executing General Info Agent for proposal: ${jobData.proposal_id}`);
+    this.logger.log(`Executing General Info Agent for proposal: ${jobData.id}`);
     return this.generalInfoAgent.execute(jobData);
   }
 
@@ -72,7 +72,7 @@ export class AIService {
     'scope-of-work': string;
     'scope-of-work-main-points': string;
   }> {
-    this.logger.log(`Executing Scope Agent for proposal: ${jobData.proposal_id}`);
+    this.logger.log(`Executing Scope Agent for proposal: ${jobData.id}`);
     return this.scopeAgent.execute(jobData, fileStoreName);
   }
 
@@ -87,7 +87,7 @@ export class AIService {
       timeline: string;
     }>;
   }> {
-    this.logger.log(`Executing Timeline Agent for proposal: ${jobData.proposal_id}`);
+    this.logger.log(`Executing Timeline Agent for proposal: ${jobData.id}`);
     return this.timelineAgent.execute(jobData, scopeMainPoints);
   }
 }

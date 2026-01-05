@@ -5,9 +5,7 @@ import { ProposalsService } from '../proposals.service';
 import { StorageService } from '../../storage/storage.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { AIService } from '../../ai/ai.service';
-import { TemplatesService } from '../../templates/templates.service';
 import { UtilsService } from '../../common/utils.service';
-import { DataTransformService } from '../../common/data-transform.service';
 import { ProposalJobData } from '../entities/proposal.entity';
 
 @Processor('proposal-generation')
@@ -19,9 +17,7 @@ export class ProposalProcessor extends WorkerHost {
     private storageService: StorageService,
     private knowledgeBaseService: KnowledgeBaseService,
     private aiService: AIService,
-    private templatesService: TemplatesService,
     private utilsService: UtilsService,
-    private dataTransformService: DataTransformService,
   ) {
     super();
   }
@@ -31,17 +27,17 @@ export class ProposalProcessor extends WorkerHost {
     const startTime = Date.now();
 
     this.logger.log(`========================================`);
-    this.logger.log(`[JOB START] Processing proposal: ${jobData.proposal_id}`);
+    this.logger.log(`[JOB START] Processing proposal: ${jobData.id}`);
     this.logger.log(`[JOB DATA] Job ID: ${job.id}, Attempt: ${job.attemptsMade + 1}`);
     this.logger.debug(`[JOB DATA] Full payload: ${JSON.stringify(jobData, null, 2)}`);
 
     try {
       let fileStoreName: string | null = null;
 
-      const hasAudioFiles = jobData.audio_path && jobData.audio_path.length > 0;
+      const hasAudioFiles = jobData.audio_storage_paths && jobData.audio_storage_paths.length > 0;
       const hasDocuments = jobData.document_storage_paths && jobData.document_storage_paths.length > 0;
 
-      this.logger.log(`[STEP 1] Checking for audio/documents - Audio: ${hasAudioFiles ? jobData.audio_path!.length : 0}, Docs: ${hasDocuments ? jobData.document_storage_paths!.length : 0}`);
+      this.logger.log(`[STEP 1] Checking for audio/documents - Audio: ${hasAudioFiles ? jobData.audio_storage_paths!.length : 0}, Docs: ${hasDocuments ? jobData.document_storage_paths!.length : 0}`);
 
       if (hasAudioFiles || hasDocuments) {
         this.logger.log(`[STEP 2] Creating Gemini File Store...`);
@@ -52,8 +48,8 @@ export class ProposalProcessor extends WorkerHost {
         this.logger.log(`[STEP 2] File store created: ${fileStoreName}`);
 
         if (hasAudioFiles) {
-          this.logger.log(`[STEP 3a] Processing ${jobData.audio_path!.length} audio file(s)...`);
-          await this.processAudioFiles(jobData.audio_path!, fileStoreName);
+          this.logger.log(`[STEP 3a] Processing ${jobData.audio_storage_paths!.length} audio file(s)...`);
+          await this.processAudioFiles(jobData.audio_storage_paths!, fileStoreName);
           this.logger.log(`[STEP 3a] Audio processing complete`);
         }
 
@@ -89,36 +85,24 @@ export class ProposalProcessor extends WorkerHost {
       this.logger.log(`[STEP 5] Timeline agent completed in ${Date.now() - timelineStartTime}ms`);
       this.logger.debug(`[STEP 5] Timeline output: ${JSON.stringify(timelineOutput, null, 2)}`);
 
-      this.logger.log(`[STEP 6] Merging all outputs...`);
-      const mergedData = this.dataTransformService.mergeOutputs(
+      this.logger.log(`[STEP 6] Saving AI outputs to PostgreSQL...`);
+      await this.proposalsService.saveProposal(
         jobData,
         generalInfoOutput,
         scopeOutput,
         timelineOutput,
       );
-      this.logger.log(`[STEP 6] Data merged - ${Object.keys(mergedData).length} fields`);
-
-      this.logger.log(`[STEP 7] Fetching template: ${jobData.template_id}...`);
-      const template = await this.templatesService.fetchTemplate(jobData.template_id);
-      this.logger.log(`[STEP 7] Template fetched: ${template.template_name}`);
-
-      this.logger.log(`[STEP 8] Rendering template...`);
-      const renderedHtml = this.templatesService.renderTemplate(template.template_design, mergedData);
-      this.logger.log(`[STEP 8] Template rendered - ${renderedHtml.length} characters`);
-
-      this.logger.log(`[STEP 9] Saving proposal to Supabase...`);
-      await this.proposalsService.saveProposal(jobData, mergedData, renderedHtml);
-      this.logger.log(`[STEP 9] Proposal saved with status: approval_pending`);
+      this.logger.log(`[STEP 6] Proposal saved with status: approval_pending`);
 
       const totalTime = Date.now() - startTime;
-      this.logger.log(`[JOB COMPLETE] Proposal ${jobData.proposal_id} completed in ${totalTime}ms`);
+      this.logger.log(`[JOB COMPLETE] Proposal ${jobData.id} completed in ${totalTime}ms`);
       this.logger.log(`========================================`);
     } catch (error: any) {
       const totalTime = Date.now() - startTime;
-      this.logger.error(`[JOB FAILED] Proposal ${jobData.proposal_id} failed after ${totalTime}ms`);
+      this.logger.error(`[JOB FAILED] Proposal ${jobData.id} failed after ${totalTime}ms`);
       this.logger.error(`[JOB FAILED] Error: ${error.message}`);
       this.logger.error(`[JOB FAILED] Stack: ${error.stack}`);
-      await this.proposalsService.markProposalFailed(jobData.proposal_id, error.message);
+      await this.proposalsService.markProposalFailed(jobData.id, error.message);
       throw error;
     }
   }
@@ -133,7 +117,7 @@ export class ProposalProcessor extends WorkerHost {
       this.logger.log(`[AUDIO ${i + 1}/${audioPaths.length}] Processing: ${audioPath}`);
 
       try {
-        this.logger.debug(`[AUDIO ${i + 1}] Downloading from Supabase...`);
+        this.logger.debug(`[AUDIO ${i + 1}] Downloading from Supabase Storage...`);
         const audioBuffer = await this.storageService.downloadAudio(audioPath);
         this.logger.log(`[AUDIO ${i + 1}] Downloaded - ${audioBuffer.length} bytes`);
 
@@ -152,6 +136,12 @@ export class ProposalProcessor extends WorkerHost {
           filename,
         );
         this.logger.log(`[AUDIO ${i + 1}] Uploaded to Gemini: ${uploadedFile.name}`);
+
+        this.logger.debug(`[AUDIO ${i + 1}] Waiting for file to be ACTIVE...`);
+        const isActive = await this.knowledgeBaseService.waitForFileActive(uploadedFile.name);
+        if (!isActive) {
+          throw new Error(`File ${uploadedFile.name} failed to become ACTIVE`);
+        }
 
         this.logger.debug(`[AUDIO ${i + 1}] Importing to file store...`);
         await this.knowledgeBaseService.importFileToStore(fileStoreName, uploadedFile.name);
@@ -177,12 +167,12 @@ export class ProposalProcessor extends WorkerHost {
       this.logger.log(`[DOC ${i + 1}/${documentPaths.length}] Processing: ${documentPath}`);
 
       try {
-        this.logger.debug(`[DOC ${i + 1}] Downloading from Supabase...`);
+        this.logger.debug(`[DOC ${i + 1}] Downloading from Supabase Storage...`);
         const documentBuffer = await this.storageService.downloadDocument(documentPath);
         this.logger.log(`[DOC ${i + 1}] Downloaded - ${documentBuffer.length} bytes`);
 
         const mimeType = this.getMimeType(documentPath);
-        const filename = documentPath.split('/').pop() || `document_${Date.now()}`;
+        const filename = this.getCleanFilename(documentPath);
         this.logger.debug(`[DOC ${i + 1}] Detected MIME type: ${mimeType}, filename: ${filename}`);
 
         this.logger.debug(`[DOC ${i + 1}] Uploading to Gemini...`);
@@ -192,6 +182,12 @@ export class ProposalProcessor extends WorkerHost {
           filename,
         );
         this.logger.log(`[DOC ${i + 1}] Uploaded to Gemini: ${uploadedFile.name}`);
+
+        this.logger.debug(`[DOC ${i + 1}] Waiting for file to be ACTIVE...`);
+        const isActive = await this.knowledgeBaseService.waitForFileActive(uploadedFile.name);
+        if (!isActive) {
+          throw new Error(`File ${uploadedFile.name} failed to become ACTIVE`);
+        }
 
         this.logger.debug(`[DOC ${i + 1}] Importing to file store...`);
         await this.knowledgeBaseService.importFileToStore(fileStoreName, uploadedFile.name);
@@ -208,7 +204,9 @@ export class ProposalProcessor extends WorkerHost {
   }
 
   private getMimeType(filePath: string): string {
-    const extension = filePath.split('.').pop()?.toLowerCase();
+    // Remove query parameters and get the clean file path
+    const cleanPath = filePath.split('?')[0];
+    const extension = cleanPath.split('.').pop()?.toLowerCase();
 
     const mimeTypes: Record<string, string> = {
       pdf: 'application/pdf',
@@ -223,5 +221,11 @@ export class ProposalProcessor extends WorkerHost {
     };
 
     return mimeTypes[extension || ''] || 'application/octet-stream';
+  }
+
+  private getCleanFilename(filePath: string): string {
+    // Remove query parameters and get the clean filename
+    const cleanPath = filePath.split('?')[0];
+    return cleanPath.split('/').pop() || `document_${Date.now()}`;
   }
 }

@@ -19,14 +19,14 @@ export class TimelineAgent {
     }>;
   }> {
     const startTime = Date.now();
-    this.logger.log(`[TIMELINE] Starting agent for proposal: ${jobData.proposal_id}`);
+    this.logger.log(`[TIMELINE] Starting agent for proposal: ${jobData.id}`);
     this.logger.debug(`[TIMELINE] Scope main points: ${scopeMainPoints?.substring(0, 100)}...`);
 
     const systemPrompt = `You are a professional project manager and proposal writer. Your task is to generate a realistic implementation timeline based on the provided scope of work. You must respond with valid JSON only, no markdown or additional text.
 
 Output the following JSON structure:
 {
-  "duration-business-days": "Total number of business days",
+  "duration-business-days": "Total number of business days **ONLY NUMBER.",
   "implementation-timeline-table": [
     {
       "phase": "Phase name",
@@ -68,11 +68,13 @@ Please generate a realistic implementation timeline with phases, activities, and
 
       this.logger.log(`[TIMELINE] OpenAI response received - ${tokensUsed} tokens used`);
       this.logger.debug(`[TIMELINE] Response content length: ${content.length} chars`);
+      this.logger.log(`[TIMELINE] Raw response: ${content}`);
 
       const parsed = JSON.parse(content);
 
       this.logger.log(`[TIMELINE] Parsed output - Duration: ${parsed['duration-business-days']}`);
       this.logger.log(`[TIMELINE] Timeline phases: ${parsed['implementation-timeline-table']?.length || 0}`);
+      this.logger.log(`[TIMELINE] Parsed response: ${JSON.stringify(parsed, null, 2)}`);
       this.logger.log(`[TIMELINE] Agent completed in ${Date.now() - startTime}ms`);
 
       return parsed;

@@ -1,42 +1,47 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { GenerateProposalDto } from './dto/generate-proposal.dto';
-import { Proposal, ProposalJobData, AIGeneratedContent } from './entities/proposal.entity';
+import {
+  Proposal,
+  ProposalJobData,
+  GeneralInfoOutput,
+  ScopeOutput,
+  TimelineOutput,
+} from './entities/proposal.entity';
+import { TemplatesService } from '../templates/templates.service';
+import { DataTransformService } from '../common/data-transform.service';
 
 @Injectable()
 export class ProposalsService {
   private readonly logger = new Logger(ProposalsService.name);
-  private supabase: SupabaseClient;
 
   constructor(
-    private configService: ConfigService,
+    @InjectRepository(Proposal)
+    private proposalRepository: Repository<Proposal>,
     @InjectQueue('proposal-generation') private proposalQueue: Queue,
+    private templatesService: TemplatesService,
+    private dataTransformService: DataTransformService,
   ) {
-    const supabaseUrl = this.configService.get<string>('SUPABASE_URL') || '';
-    const supabaseKey = this.configService.get<string>('SUPABASE_SERVICE_KEY') || '';
-
-    this.logger.log(`[INIT] Initializing Supabase client`);
-    this.logger.debug(`[INIT] Supabase URL: ${supabaseUrl.substring(0, 30)}...`);
-
-    this.supabase = createClient(supabaseUrl, supabaseKey);
-    this.logger.log(`[INIT] Supabase client initialized`);
+    this.logger.log(`[INIT] ProposalsService initialized with TypeORM`);
   }
 
-  async generateProposal(dto: GenerateProposalDto): Promise<{ proposal_id: string }> {
+  async generateProposal(dto: GenerateProposalDto): Promise<{ id: string }> {
     this.logger.log(`========================================`);
     this.logger.log(`[API] POST /proposals/generate`);
-    this.logger.log(`[API] proposal_id: ${dto.proposal_id}`);
-    this.logger.log(`[API] organization_id: ${dto.organization_id}`);
+    // Support both subscription_id and organization_id for backward compatibility
+    const subscriptionId = dto.subscription_id || dto.organization_id;
+    this.logger.log(`[API] subscription_id: ${subscriptionId}`);
     this.logger.log(`[API] template_id: ${dto.template_id}`);
     this.logger.log(`[API] created_by: ${dto.created_by}`);
     this.logger.debug(`[API] Full DTO: ${JSON.stringify(dto, null, 2)}`);
 
-    const jobData: ProposalJobData = {
-      proposal_id: dto.proposal_id,
-      organization_id: dto.organization_id,
+    this.logger.log(`[DB] Creating proposal row in PostgreSQL...`);
+
+    const proposal = this.proposalRepository.create({
+      subscription_id: subscriptionId,
       template_id: dto.template_id,
       created_by: dto.created_by,
       title: dto.title,
@@ -44,7 +49,40 @@ export class ProposalsService {
       client_email: dto.client_email,
       links: dto.links,
       industry: dto.industry,
-      audio_path: dto.audio_path,
+      audio_storage_paths: dto.audio_storage_paths,
+      document_storage_paths: dto.document_storage_paths,
+      summary: dto.summary,
+      goals: dto.goals,
+      scope: dto.scope,
+      deliverables: dto.deliverables,
+      start_date: dto.start_date ? new Date(dto.start_date) : undefined,
+      end_date: dto.end_date ? new Date(dto.end_date) : undefined,
+      date_of_proposal: dto.date_of_proposal ? new Date(dto.date_of_proposal) : undefined,
+      milestones: dto.milestones,
+      total_budget: dto.total_budget,
+      currency: dto.currency,
+      billing_type: dto.billing_type,
+      team_members: dto.team_members,
+      submitted_to: dto.submitted_to,
+      status: 'processing',
+    });
+
+    const savedProposal = await this.proposalRepository.save(proposal);
+
+    const proposalId = savedProposal.id;
+    this.logger.log(`[DB] Proposal created with ID: ${proposalId}`);
+
+    const jobData: ProposalJobData = {
+      id: proposalId,
+      subscription_id: subscriptionId,
+      template_id: dto.template_id,
+      created_by: dto.created_by,
+      title: dto.title,
+      client_name: dto.client_name,
+      client_email: dto.client_email,
+      links: dto.links,
+      industry: dto.industry,
+      audio_storage_paths: dto.audio_storage_paths,
       document_storage_paths: dto.document_storage_paths,
       summary: dto.summary,
       goals: dto.goals,
@@ -72,94 +110,134 @@ export class ProposalsService {
     });
 
     this.logger.log(`[QUEUE] Job added - ID: ${job.id}`);
-    this.logger.log(`[API] Returning proposal_id: ${dto.proposal_id}`);
+    this.logger.log(`[API] Returning id: ${proposalId}`);
     this.logger.log(`========================================`);
 
-    return { proposal_id: dto.proposal_id };
+    return { id: proposalId };
   }
 
   async getProposalResult(proposalId: string): Promise<Proposal | null> {
     this.logger.log(`[API] GET /proposals/${proposalId}/result`);
 
-    const { data, error } = await this.supabase
-      .from('proposals')
-      .select('*')
-      .eq('proposal_id', proposalId)
-      .single();
+    const proposal = await this.proposalRepository.findOne({
+      where: { id: proposalId },
+    });
 
-    if (error) {
-      this.logger.error(`[API] Error fetching proposal ${proposalId}: ${error.message}`);
+    if (!proposal) {
+      this.logger.error(`[API] Proposal ${proposalId} not found`);
       return null;
     }
 
-    this.logger.log(`[API] Proposal found - status: ${data.status}`);
-    this.logger.debug(`[API] Proposal data: ${JSON.stringify(data, null, 2)}`);
+    this.logger.log(`[API] Proposal found - status: ${proposal.status}`);
+    this.logger.debug(`[API] Proposal data: ${JSON.stringify(proposal, null, 2)}`);
 
-    return data as Proposal;
+    return proposal;
   }
 
   async saveProposal(
     jobData: ProposalJobData,
-    aiContent: AIGeneratedContent,
-    pdfCode: string,
+    generalInfo: GeneralInfoOutput,
+    scope: ScopeOutput,
+    timeline: TimelineOutput,
   ): Promise<void> {
-    this.logger.log(`[SAVE] Saving proposal ${jobData.proposal_id} to Supabase...`);
-    this.logger.log(`[SAVE] pdf_code length: ${pdfCode.length} chars`);
+    this.logger.log(`[SAVE] Updating proposal ${jobData.id} in PostgreSQL...`);
 
-    const proposal: Partial<Proposal> = {
-      proposal_id: jobData.proposal_id,
-      organization_id: jobData.organization_id,
-      created_by: jobData.created_by,
-      title: jobData.title,
-      client_name: jobData.client_name,
-      client_email: jobData.client_email,
-      links: jobData.links,
-      industry: jobData.industry,
-      audio_path: jobData.audio_path,
-      summary: jobData.summary,
-      goals: jobData.goals,
-      scope: jobData.scope,
-      deliverables: jobData.deliverables,
-      start_date: jobData.start_date,
-      end_date: jobData.end_date,
-      date_of_proposal: jobData.date_of_proposal,
-      milestones: jobData.milestones,
-      total_budget: jobData.total_budget,
-      currency: jobData.currency,
-      billing_type: jobData.billing_type,
-      team_members: jobData.team_members,
-      submitted_to: jobData.submitted_to,
-      status: 'approval_pending',
-      pdf_code: pdfCode,
+    // Parse integers safely, defaulting to undefined if invalid
+    const parseIntSafe = (value: string | undefined): number | undefined => {
+      if (!value) return undefined;
+      const parsed = parseInt(value, 10);
+      return isNaN(parsed) ? undefined : parsed;
     };
 
-    this.logger.debug(`[SAVE] Proposal fields: ${Object.keys(proposal).join(', ')}`);
+    const result = await this.proposalRepository.update(
+      { id: jobData.id },
+      {
+        status: 'approval_pending',
+        executive_summary: generalInfo['executive-summary'],
+        objectives: generalInfo.objectives,
+        training_and_support: generalInfo['training-and-support'],
+        team_structure_min_experience: parseIntSafe(generalInfo['team-structure-min-experiance']),
+        team_structure_table: generalInfo['team-structure-table'],
+        scope_of_work_introduction: scope['scope-of-work-introduction'],
+        scope_of_work_summary: scope['scope-of-work-summary'],
+        scope_of_work: scope['scope-of-work'],
+        duration_business_days: parseIntSafe(timeline['duration-business-days']),
+        implementation_timeline_table: timeline['implementation-timeline-table'],
+      },
+    );
 
-    const { error } = await this.supabase.from('proposals').upsert(proposal);
-
-    if (error) {
-      this.logger.error(`[SAVE] FAILED - ${error.message}`);
-      this.logger.error(`[SAVE] Error details: ${JSON.stringify(error)}`);
-      throw new Error(`Failed to save proposal: ${error.message}`);
+    if (result.affected === 0) {
+      this.logger.error(`[SAVE] FAILED - No proposal found with id ${jobData.id}`);
+      throw new Error(`Failed to save proposal: Proposal not found`);
     }
 
-    this.logger.log(`[SAVE] SUCCESS - Proposal ${jobData.proposal_id} saved with status: approval_pending`);
+    this.logger.log(`[SAVE] SUCCESS - Proposal ${jobData.id} updated with status: approval_pending`);
+  }
+
+  async renderProposal(proposalId: string): Promise<{ html: string }> {
+    this.logger.log(`[RENDER] Rendering proposal ${proposalId}...`);
+
+    const proposal = await this.proposalRepository.findOne({
+      where: { id: proposalId },
+    });
+
+    if (!proposal) {
+      this.logger.error(`[RENDER] Proposal ${proposalId} not found`);
+      throw new Error('Proposal not found');
+    }
+
+    if (!proposal.template_id) {
+      this.logger.error(`[RENDER] Proposal ${proposalId} has no template_id`);
+      throw new Error('Proposal has no template assigned');
+    }
+
+    const template = await this.templatesService.fetchTemplate(proposal.template_id);
+    this.logger.log(`[RENDER] Template fetched: ${template.name}`);
+
+    // Add table headers for rendering
+    const teamTableWithHeader = this.dataTransformService.addTeamStructureHeader(
+      proposal.team_structure_table as any,
+    );
+    const timelineTableWithHeader = this.dataTransformService.addTimelineHeader(
+      proposal.implementation_timeline_table as any,
+    );
+
+    // Map proposal data to template expected format
+    const templateData: Record<string, any> = {
+      title: proposal.title,
+      date_of_proposal: proposal.date_of_proposal?.toISOString?.() || proposal.date_of_proposal,
+      submitted_to: proposal.submitted_to,
+      'executive-summary': proposal.executive_summary,
+      objectives: proposal.objectives,
+      'scope-of-work-introduction': proposal.scope_of_work_introduction,
+      'scope-of-work-summary': proposal.scope_of_work_summary,
+      'scope-of-work': proposal.scope_of_work,
+      start_date: proposal.start_date?.toISOString?.() || proposal.start_date,
+      end_date: proposal.end_date?.toISOString?.() || proposal.end_date,
+      'training-and-support': proposal.training_and_support,
+      'duration-business-days': proposal.duration_business_days?.toString(),
+      'team-structure-min-experiance': proposal.team_structure_min_experience?.toString(),
+      'team-structure-table': teamTableWithHeader,
+      'implementation-timeline-table': timelineTableWithHeader,
+    };
+
+    const html = this.templatesService.renderTemplate(template.html, templateData);
+    this.logger.log(`[RENDER] Template rendered - ${html.length} characters`);
+
+    return { html };
   }
 
   async markProposalFailed(proposalId: string, errorMessage: string): Promise<void> {
     this.logger.log(`[FAIL] Marking proposal ${proposalId} as failed...`);
     this.logger.log(`[FAIL] Error: ${errorMessage.substring(0, 200)}`);
 
-    const { error } = await this.supabase
-      .from('proposals')
-      .upsert({
-        proposal_id: proposalId,
-        status: 'failed',
-        error: errorMessage,
-      });
+    const result = await this.proposalRepository.update(
+      { id: proposalId },
+      { status: 'failed' },
+    );
 
-    if (error) {
-      this.logger.error(`[FAIL] Could not update status: ${error.message}`);
+    if (result.affected === 0) {
+      this.logger.error(`[FAIL] Could not update status: Proposal not found`);
     } else {
       this.logger.log(`[FAIL] Proposal ${proposalId} marked as failed`);
     }

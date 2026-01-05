@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProposalsModule } from './proposals/proposals.module';
 import { QueueModule } from './queue/queue.module';
 import { StorageModule } from './storage/storage.module';
@@ -8,6 +9,13 @@ import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
 import { AIModule } from './ai/ai.module';
 import { TemplatesModule } from './templates/templates.module';
 import { CommonModule } from './common/common.module';
+import { HealthModule } from './health/health.module';
+import { OrganizationsModule } from './organizations/organizations.module';
+import { UsersModule } from './users/users.module';
+import { Proposal } from './proposals/entities/proposal.entity';
+import { Template } from './templates/entities/template.entity';
+import { Organization } from './organizations/entities/organization.entity';
+import { User } from './users/entities/user.entity';
 
 @Module({
   imports: [
@@ -15,15 +23,35 @@ import { CommonModule } from './common/common.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
-    BullModule.forRootAsync({
+    TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        connection: {
-          host: configService.get<string>('REDIS_HOST', 'localhost'),
-          port: configService.get<number>('REDIS_PORT', 6379),
-          password: configService.get<string>('REDIS_PASSWORD'),
-        },
+        type: 'postgres',
+        host: configService.get<string>('DB_HOST', 'localhost'),
+        port: configService.get<number>('DB_PORT', 5432),
+        username: configService.get<string>('DB_USERNAME', 'postgres'),
+        password: configService.get<string>('DB_PASSWORD', ''),
+        database: configService.get<string>('DB_DATABASE', 'proposal_db'),
+        entities: [Proposal, Template, Organization, User],
+        synchronize: false,
+        ssl: configService.get<string>('DB_SSL', 'false') === 'true'
+          ? { rejectUnauthorized: false }
+          : false,
       }),
+      inject: [ConfigService],
+    }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => {
+        const password = configService.get<string>('REDIS_PASSWORD');
+        return {
+          connection: {
+            host: configService.get<string>('REDIS_HOST', 'localhost'),
+            port: configService.get<number>('REDIS_PORT', 6379),
+            ...(password && { password }),
+          },
+        };
+      },
       inject: [ConfigService],
     }),
     ProposalsModule,
@@ -33,6 +61,9 @@ import { CommonModule } from './common/common.module';
     AIModule,
     TemplatesModule,
     CommonModule,
+    HealthModule,
+    OrganizationsModule,
+    UsersModule,
   ],
 })
 export class AppModule {}

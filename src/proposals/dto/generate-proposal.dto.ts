@@ -4,21 +4,21 @@ import {
   IsOptional,
   IsArray,
   IsNumber,
-  IsObject,
 } from 'class-validator';
 
 export class GenerateProposalDto {
   @IsUUID()
-  proposal_id: string;
-
-  @IsUUID()
-  organization_id: string;
+  subscription_id: string;
 
   @IsUUID()
   template_id: string;
 
   @IsUUID()
   created_by: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  submitted_to: string[];
 
   @IsOptional()
   @IsString()
@@ -44,7 +44,7 @@ export class GenerateProposalDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  audio_path?: string[];
+  audio_storage_paths?: string[];
 
   @IsOptional()
   @IsArray()
@@ -100,7 +100,12 @@ export class GenerateProposalDto {
   @IsArray()
   team_members?: object[];
 
+  // Backward compatibility aliases
   @IsOptional()
-  @IsString()
-  submitted_to?: string;
+  @IsUUID()
+  organization_id?: string;
+
+  @IsOptional()
+  @IsUUID()
+  user_id?: string;
 }

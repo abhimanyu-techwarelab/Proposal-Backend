@@ -21,7 +21,7 @@ export class ScopeAgent {
     'scope-of-work-main-points': string;
   }> {
     const startTime = Date.now();
-    this.logger.log(`[SCOPE] Starting agent for proposal: ${jobData.proposal_id}`);
+    this.logger.log(`[SCOPE] Starting agent for proposal: ${jobData.id}`);
     this.logger.log(`[SCOPE] File store available: ${fileStoreName ? 'YES' : 'NO'}`);
 
     let kbContext = '';
@@ -101,11 +101,13 @@ Please generate a detailed scope of work section.`;
 
       this.logger.log(`[SCOPE] OpenAI response received - ${tokensUsed} tokens used`);
       this.logger.debug(`[SCOPE] Response content length: ${content.length} chars`);
+      this.logger.log(`[SCOPE] Raw response: ${content}`);
 
       const parsed = JSON.parse(content);
 
       this.logger.log(`[SCOPE] Parsed output keys: ${Object.keys(parsed).join(', ')}`);
       this.logger.debug(`[SCOPE] Main points: ${parsed['scope-of-work-main-points']?.substring(0, 100)}...`);
+      this.logger.log(`[SCOPE] Parsed response: ${JSON.stringify(parsed, null, 2)}`);
       this.logger.log(`[SCOPE] Agent completed in ${Date.now() - startTime}ms`);
 
       return parsed;

@@ -70,7 +70,7 @@ export class KnowledgeBaseService {
       });
 
       const fileInfo = uploadResponse.data.file;
-      this.logger.log(`File uploaded: ${fileInfo.name}`);
+      this.logger.log(`File uploaded: ${fileInfo.name}, state: ${fileInfo.state}`);
       return { name: fileInfo.name, uri: fileInfo.uri };
     } catch (error: any) {
       this.logger.error(`Failed to upload file: ${error.message}`);
@@ -78,13 +78,60 @@ export class KnowledgeBaseService {
     }
   }
 
+  async getFileStatus(fileName: string): Promise<{ state: string; name: string }> {
+    try {
+      const response = await axios.get(
+        `${this.baseUrl}/v1beta/${fileName}?key=${this.geminiApiKey}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      return {
+        state: response.data.state || 'UNKNOWN',
+        name: response.data.name,
+      };
+    } catch (error: any) {
+      this.logger.error(`Failed to get file status: ${error.message}`);
+      throw new Error(`Failed to get file status: ${error.message}`);
+    }
+  }
+
+  async waitForFileActive(fileName: string, maxWaitMs: number = 30000, pollIntervalMs: number = 2000): Promise<boolean> {
+    this.logger.log(`[FILE] Waiting for file to be ACTIVE: ${fileName}`);
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitMs) {
+      const fileStatus = await this.getFileStatus(fileName);
+      this.logger.log(`[FILE] ${fileName} state: ${fileStatus.state}`);
+
+      if (fileStatus.state === 'ACTIVE') {
+        this.logger.log(`[FILE] File is now ACTIVE: ${fileName}`);
+        return true;
+      }
+
+      if (fileStatus.state === 'FAILED') {
+        this.logger.error(`[FILE] File processing FAILED: ${fileName}`);
+        return false;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+
+    this.logger.warn(`[FILE] Timeout waiting for file to be ACTIVE: ${fileName}`);
+    return false;
+  }
+
   async importFileToStore(fileStoreName: string, fileName: string): Promise<void> {
     this.logger.log(`Importing file ${fileName} to store ${fileStoreName}`);
 
     try {
+      // Gemini API expects 'fileName' field (camelCase) with the file resource name
       await axios.post(
         `${this.baseUrl}/v1beta/${fileStoreName}:importFile?key=${this.geminiApiKey}`,
-        { file_name: fileName },
+        { fileName: fileName },
         {
           headers: {
             'Content-Type': 'application/json',
@@ -94,9 +141,72 @@ export class KnowledgeBaseService {
 
       this.logger.log(`File ${fileName} imported to store successfully`);
     } catch (error: any) {
+      // Log detailed error response for debugging
+      if (error.response) {
+        this.logger.error(`Import file failed - Status: ${error.response.status}`);
+        this.logger.error(`Import file failed - Response: ${JSON.stringify(error.response.data)}`);
+      }
       this.logger.error(`Failed to import file to store: ${error.message}`);
       throw new Error(`Failed to import file to store: ${error.message}`);
     }
+  }
+
+  async getFileStoreStatus(fileStoreName: string): Promise<{
+    activeDocumentsCount: number;
+    pendingDocumentsCount: number;
+    failedDocumentsCount: number;
+  }> {
+    this.logger.log(`[FILE STORE STATUS] Checking status of: ${fileStoreName}`);
+
+    try {
+      const response = await axios.get(
+        `${this.baseUrl}/v1beta/${fileStoreName}?key=${this.geminiApiKey}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const status = {
+        activeDocumentsCount: response.data.activeDocumentsCount || 0,
+        pendingDocumentsCount: response.data.pendingDocumentsCount || 0,
+        failedDocumentsCount: response.data.failedDocumentsCount || 0,
+      };
+
+      this.logger.log(`[FILE STORE STATUS] Active: ${status.activeDocumentsCount}, Pending: ${status.pendingDocumentsCount}, Failed: ${status.failedDocumentsCount}`);
+      return status;
+    } catch (error: any) {
+      this.logger.error(`Failed to get file store status: ${error.message}`);
+      throw new Error(`Failed to get file store status: ${error.message}`);
+    }
+  }
+
+  async waitForFilesReady(fileStoreName: string, maxWaitMs: number = 60000, pollIntervalMs: number = 2000): Promise<boolean> {
+    this.logger.log(`[FILE STORE] Waiting for files to be indexed in: ${fileStoreName}`);
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitMs) {
+      const status = await this.getFileStoreStatus(fileStoreName);
+
+      if (status.pendingDocumentsCount === 0) {
+        if (status.failedDocumentsCount > 0) {
+          this.logger.warn(`[FILE STORE] ${status.failedDocumentsCount} document(s) failed to index`);
+        }
+        if (status.activeDocumentsCount > 0) {
+          this.logger.log(`[FILE STORE] All files indexed successfully - ${status.activeDocumentsCount} active document(s)`);
+          return true;
+        }
+        this.logger.log(`[FILE STORE] No pending documents, active: ${status.activeDocumentsCount}`);
+        return status.activeDocumentsCount > 0;
+      }
+
+      this.logger.log(`[FILE STORE] Still indexing... Pending: ${status.pendingDocumentsCount}, Active: ${status.activeDocumentsCount}`);
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+
+    this.logger.warn(`[FILE STORE] Timeout waiting for files to be indexed`);
+    return false;
   }
 
   async queryFileStore(fileStoreName: string, query: string): Promise<string> {

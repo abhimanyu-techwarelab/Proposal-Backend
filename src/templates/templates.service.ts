@@ -1,14 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import Handlebars from 'handlebars';
 import { marked } from 'marked';
-
-interface Template {
-  template_id: string;
-  template_design: string;
-  template_name: string;
-}
+import { Template } from './entities/template.entity';
 
 interface MergedProposalData {
   title?: string;
@@ -41,15 +36,13 @@ interface MergedProposalData {
 @Injectable()
 export class TemplatesService {
   private readonly logger = new Logger(TemplatesService.name);
-  private supabase: SupabaseClient;
 
-  constructor(private configService: ConfigService) {
-    this.supabase = createClient(
-      this.configService.get<string>('SUPABASE_URL') || '',
-      this.configService.get<string>('SUPABASE_SERVICE_KEY') || '',
-    );
-
+  constructor(
+    @InjectRepository(Template)
+    private templateRepository: Repository<Template>,
+  ) {
     this.registerHandlebarsHelpers();
+    this.logger.log(`[INIT] TemplatesService initialized with TypeORM`);
   }
 
   private registerHandlebarsHelpers(): void {
@@ -85,22 +78,24 @@ export class TemplatesService {
     });
   }
 
-  async fetchTemplate(templateId: string): Promise<Template> {
+  async fetchTemplate(templateId: string): Promise<{ id: string; html: string; name: string }> {
     this.logger.log(`Fetching template: ${templateId}`);
 
-    const { data, error } = await this.supabase
-      .from('templates')
-      .select('template_id, template_design, template_name')
-      .eq('template_id', templateId)
-      .single();
+    const template = await this.templateRepository.findOne({
+      where: { id: templateId },
+    });
 
-    if (error) {
-      this.logger.error(`Failed to fetch template ${templateId}: ${error.message}`);
-      throw new Error(`Failed to fetch template: ${error.message}`);
+    if (!template) {
+      this.logger.error(`Failed to fetch template ${templateId}: Template not found`);
+      throw new Error(`Failed to fetch template: Template not found`);
     }
 
-    this.logger.log(`Template fetched: ${data.template_name}`);
-    return data as Template;
+    this.logger.log(`Template fetched: ${template.name}`);
+    return {
+      id: template.id,
+      html: template.html || '',
+      name: template.name,
+    };
   }
 
   renderTemplate(templateDesign: string, data: MergedProposalData): string {

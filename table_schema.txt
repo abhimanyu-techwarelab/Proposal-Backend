@@ -1,0 +1,264 @@
+-- enable uuid
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- =========================
+-- ROLES
+-- =========================
+CREATE TABLE roles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR NOT NULL,
+  key VARCHAR UNIQUE NOT NULL,
+  description TEXT,
+  is_deleted BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT NULL
+);
+
+-- =========================
+-- ORGANIZATIONS
+-- =========================
+CREATE TABLE organizations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR NOT NULL,
+  country VARCHAR,
+  logo_url TEXT,
+  primary_email VARCHAR,
+  pg_customer_id VARCHAR UNIQUE,
+  is_deleted BOOLEAN DEFAULT FALSE,
+  is_paused BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT NULL,
+  updated_by UUID DEFAULT NULL
+);
+
+-- =========================
+-- USERS
+-- =========================
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  organization_id UUID REFERENCES organizations(id),
+  role_id UUID REFERENCES roles(id),
+  email VARCHAR UNIQUE NOT NULL,
+  password_hash VARCHAR NOT NULL,
+  name VARCHAR,
+  is_deleted BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT NULL
+);
+
+-- add FK after users exists
+ALTER TABLE organizations
+ADD CONSTRAINT fk_org_updated_by FOREIGN KEY (updated_by) REFERENCES users(id);
+
+-- =========================
+-- PLANS
+-- =========================
+CREATE TABLE plans (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  plan_code VARCHAR UNIQUE NOT NULL,
+  billing_interval VARCHAR,
+  pg_product_id VARCHAR,
+  pg_price_id VARCHAR,
+  price DECIMAL,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT NULL
+);
+
+-- =========================
+-- FEATURES
+-- =========================
+CREATE TABLE features (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR NOT NULL,
+  key VARCHAR UNIQUE NOT NULL,
+  type VARCHAR,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+-- =========================
+-- PLAN FEATURES
+-- =========================
+CREATE TABLE plan_features (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  plan_id UUID REFERENCES plans(id),
+  feature_id UUID REFERENCES features(id),
+  limit INT,
+  is_true BOOLEAN DEFAULT FALSE
+);
+
+-- =========================
+-- SUBSCRIPTIONS
+-- =========================
+CREATE TABLE subscriptions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  organization_id UUID REFERENCES organizations(id),
+  plan_id UUID REFERENCES plans(id),
+  pg_subscription_id VARCHAR UNIQUE,
+  status VARCHAR,
+  current_period_start TIMESTAMP,
+  current_period_end TIMESTAMP,
+  cancel_at_period_end BOOLEAN DEFAULT FALSE,
+  trial_end TIMESTAMP,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT NULL,
+  updated_by UUID DEFAULT NULL REFERENCES users(id)
+);
+
+-- =========================
+-- TEMPLATES
+-- =========================
+CREATE TABLE templates (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR NOT NULL,
+  description TEXT,
+  html TEXT,
+  css TEXT,
+  preview_image TEXT,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT NULL
+);
+
+-- =========================
+-- SUBSCRIPTION TEMPLATES
+-- =========================
+CREATE TABLE subscription_templates (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  subscription_id UUID REFERENCES subscriptions(id),
+  template_id UUID REFERENCES templates(id),
+  is_active BOOLEAN DEFAULT TRUE,
+  assigned_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT NULL,
+  updated_by UUID DEFAULT NULL REFERENCES users(id)
+);
+
+-- =========================
+-- PROPOSALS
+-- =========================
+CREATE TABLE proposals (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+
+  subscription_id UUID REFERENCES subscriptions(id),
+  template_id UUID REFERENCES templates(id),
+  created_by UUID REFERENCES users(id),
+
+  title VARCHAR,
+  client_name VARCHAR,
+  client_email VARCHAR,
+  industry VARCHAR,
+
+  executive_summary TEXT,
+  objectives TEXT,
+  training_and_support TEXT,
+
+  team_structure_min_experience INT,
+  team_structure_table JSONB,
+
+  scope_of_work_introduction TEXT,
+  scope_of_work_summary TEXT,
+  scope_of_work TEXT,
+
+  summary TEXT,
+  goals TEXT,
+  scope TEXT,
+
+  start_date DATE,
+  end_date DATE,
+  date_of_proposal DATE,
+
+  duration_business_days INT,
+
+  total_budget DECIMAL,
+  currency VARCHAR,
+  billing_type VARCHAR,
+
+  links TEXT[],
+  deliverables TEXT[],
+  milestones JSONB,
+  team_members JSONB,
+  submitted_to TEXT[],
+  audio_storage_paths TEXT[],
+  document_storage_paths TEXT[],
+
+  implementation_timeline_table JSONB,
+
+  rendered_pdf_url TEXT,
+
+  status VARCHAR,
+  retention_date DATE,
+  is_deleted BOOLEAN DEFAULT FALSE,
+
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT NULL,
+  updated_by UUID DEFAULT NULL REFERENCES users(id)
+);
+
+-- =========================
+-- PROPOSAL VIEWS
+-- =========================
+CREATE TABLE proposal_views (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  proposal_id UUID REFERENCES proposals(id),
+  viewed_at TIMESTAMP DEFAULT now(),
+  ip_address VARCHAR
+);
+
+-- =========================
+-- USAGE COUNTERS
+-- =========================
+CREATE TABLE usage_counters (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  subscription_id UUID REFERENCES subscriptions(id),
+  period_start DATE,
+  period_end DATE,
+  proposals_generated INT DEFAULT 0,
+  retry_used INT DEFAULT 0,
+  emails_sent INT DEFAULT 0,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT NULL
+);
+
+-- =========================
+-- EMAILS
+-- =========================
+CREATE TABLE emails (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  proposal_id UUID REFERENCES proposals(id),
+  from_email VARCHAR,
+  to_email VARCHAR,
+  subject VARCHAR,
+  body TEXT,
+  status VARCHAR,
+  provider VARCHAR,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+-- =========================
+-- PAYMENTS
+-- =========================
+CREATE TABLE payments (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  organization_id UUID REFERENCES organizations(id),
+  pg_invoice_id VARCHAR,
+  pg_payment_intent_id VARCHAR,
+  amount DECIMAL,
+  currency VARCHAR,
+  status VARCHAR,
+  invoice_pdf_url TEXT,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+-- =========================
+-- WEBHOOK EVENTS
+-- =========================
+CREATE TABLE webhook_events (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  pg_event_id VARCHAR UNIQUE,
+  event_type VARCHAR,
+  payload JSONB,
+  processed BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT now()
+);
