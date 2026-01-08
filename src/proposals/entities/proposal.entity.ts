@@ -118,6 +118,15 @@ export class Proposal {
   @Column({ type: 'varchar', nullable: true })
   status: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  pinecone_namespace: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  parent_id: string;
+
+  @Column({ type: 'int', default: 1 })
+  version_number: number;
+
   @Column({ type: 'date', nullable: true })
   retention_date: Date;
 

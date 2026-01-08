@@ -1,20 +1,20 @@
-import { Controller, Post, Get, Put, Delete, Body, Query, Param, Logger, BadRequestException } from '@nestjs/common';
-import { UsersService } from './users.service';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
+import { Controller, Post, Get, Put, Delete, Body, Param, Query, Logger, BadRequestException } from '@nestjs/common';
+import { RolesService } from './roles.service';
+import { CreateRoleDto } from './dto/create-role.dto';
+import { UpdateRoleDto } from './dto/update-role.dto';
 
-@Controller('users')
-export class UsersController {
-  private readonly logger = new Logger(UsersController.name);
+@Controller('roles')
+export class RolesController {
+  private readonly logger = new Logger(RolesController.name);
 
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly rolesService: RolesService) {}
 
   @Post('create')
-  async create(@Body() dto: CreateUserDto) {
-    this.logger.log(`[REQUEST] POST /users/create`);
+  async create(@Body() dto: CreateRoleDto) {
+    this.logger.log(`[REQUEST] POST /roles/create`);
 
     const startTime = Date.now();
-    const result = await this.usersService.create(dto);
+    const result = await this.rolesService.create(dto);
 
     this.logger.log(`[RESPONSE] 201 Created - id: ${result.id} - ${Date.now() - startTime}ms`);
 
@@ -27,7 +27,7 @@ export class UsersController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    this.logger.log(`[REQUEST] GET /users - organization_id: ${organizationId}, page: ${page}, limit: ${limit}`);
+    this.logger.log(`[REQUEST] GET /roles - organization_id: ${organizationId}, page: ${page}, limit: ${limit}`);
 
     if (!organizationId) {
       throw new BadRequestException('organization_id is required');
@@ -37,7 +37,7 @@ export class UsersController {
     const pageNum = page ? parseInt(page, 10) : undefined;
     const limitNum = limit ? parseInt(limit, 10) : undefined;
 
-    const result = await this.usersService.findAll(organizationId, pageNum, limitNum);
+    const result = await this.rolesService.findAll(organizationId, pageNum, limitNum);
 
     if (Array.isArray(result)) {
       this.logger.log(`[RESPONSE] 200 OK - count: ${result.length} - ${Date.now() - startTime}ms`);
@@ -50,10 +50,10 @@ export class UsersController {
 
   @Get(':id')
   async findOne(@Param('id') id: string) {
-    this.logger.log(`[REQUEST] GET /users/${id}`);
+    this.logger.log(`[REQUEST] GET /roles/${id}`);
 
     const startTime = Date.now();
-    const result = await this.usersService.findOne(id);
+    const result = await this.rolesService.findOne(id);
 
     this.logger.log(`[RESPONSE] 200 OK - id: ${result.id} - ${Date.now() - startTime}ms`);
 
@@ -61,11 +61,11 @@ export class UsersController {
   }
 
   @Put('update/:id')
-  async update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
-    this.logger.log(`[REQUEST] PUT /users/update/${id}`);
+  async update(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
+    this.logger.log(`[REQUEST] PUT /roles/update/${id}`);
 
     const startTime = Date.now();
-    const result = await this.usersService.update(id, dto);
+    const result = await this.rolesService.update(id, dto);
 
     this.logger.log(`[RESPONSE] 200 OK - id: ${result.id} - ${Date.now() - startTime}ms`);
 
@@ -74,10 +74,10 @@ export class UsersController {
 
   @Delete('delete/:id')
   async delete(@Param('id') id: string) {
-    this.logger.log(`[REQUEST] DELETE /users/delete/${id}`);
+    this.logger.log(`[REQUEST] DELETE /roles/delete/${id}`);
 
     const startTime = Date.now();
-    const result = await this.usersService.softDelete(id);
+    const result = await this.rolesService.softDelete(id);
 
     this.logger.log(`[RESPONSE] 200 OK - id: ${result.id} - ${Date.now() - startTime}ms`);
 

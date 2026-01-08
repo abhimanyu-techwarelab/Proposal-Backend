@@ -76,6 +76,15 @@ export class TemplatesService {
       html += '</tbody></table>';
       return new Handlebars.SafeString(html);
     });
+
+    Handlebars.registerHelper('preserveLineBreaks', (text: string) => {
+      if (!text) return '';
+      const escaped = Handlebars.Utils.escapeExpression(text);
+      const formatted = escaped
+        .replace(/\n\n/g, '</p><p>')
+        .replace(/\n/g, '<br>');
+      return new Handlebars.SafeString(`<p>${formatted}</p>`);
+    });
   }
 
   async fetchTemplate(templateId: string): Promise<{ id: string; html: string; name: string }> {

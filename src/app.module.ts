@@ -12,10 +12,16 @@ import { CommonModule } from './common/common.module';
 import { HealthModule } from './health/health.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { UsersModule } from './users/users.module';
+import { RolesModule } from './roles/roles.module';
+import { AuthModule } from './auth/auth.module';
+import { PermissionsModule } from './permissions/permissions.module';
 import { Proposal } from './proposals/entities/proposal.entity';
 import { Template } from './templates/entities/template.entity';
 import { Organization } from './organizations/entities/organization.entity';
 import { User } from './users/entities/user.entity';
+import { Role } from './roles/entities/role.entity';
+import { Permission } from './permissions/entities/permission.entity';
+import { RolePermission } from './permissions/entities/role-permission.entity';
 
 @Module({
   imports: [
@@ -32,7 +38,7 @@ import { User } from './users/entities/user.entity';
         username: configService.get<string>('DB_USERNAME', 'postgres'),
         password: configService.get<string>('DB_PASSWORD', ''),
         database: configService.get<string>('DB_DATABASE', 'proposal_db'),
-        entities: [Proposal, Template, Organization, User],
+        entities: [Proposal, Template, Organization, User, Role, Permission, RolePermission],
         synchronize: false,
         ssl: configService.get<string>('DB_SSL', 'false') === 'true'
           ? { rejectUnauthorized: false }
@@ -64,6 +70,9 @@ import { User } from './users/entities/user.entity';
     HealthModule,
     OrganizationsModule,
     UsersModule,
+    RolesModule,
+    AuthModule,
+    PermissionsModule,
   ],
 })
 export class AppModule {}

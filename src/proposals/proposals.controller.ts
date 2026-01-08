@@ -59,6 +59,18 @@ export class ProposalsController {
     }
   }
 
+  @Get('count')
+  async count() {
+    this.logger.log(`[REQUEST] GET /product/proposals/count`);
+
+    const startTime = Date.now();
+    const result = await this.proposalsService.count();
+
+    this.logger.log(`[RESPONSE] 200 OK - count: ${result.count} - ${Date.now() - startTime}ms`);
+
+    return result;
+  }
+
   @Get(':id/render')
   async renderProposal(@Param('id') id: string) {
     this.logger.log(`[REQUEST] GET /product/proposals/${id}/render`);

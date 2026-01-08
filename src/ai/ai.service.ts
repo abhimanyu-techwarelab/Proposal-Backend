@@ -65,7 +65,7 @@ export class AIService {
 
   async executeScopeAgent(
     jobData: ProposalJobData,
-    fileStoreName: string | null,
+    namespace: string | null,
   ): Promise<{
     'scope-of-work-introduction': string;
     'scope-of-work-summary': string;
@@ -73,7 +73,7 @@ export class AIService {
     'scope-of-work-main-points': string;
   }> {
     this.logger.log(`Executing Scope Agent for proposal: ${jobData.id}`);
-    return this.scopeAgent.execute(jobData, fileStoreName);
+    return this.scopeAgent.execute(jobData, namespace);
   }
 
   async executeTimelineAgent(

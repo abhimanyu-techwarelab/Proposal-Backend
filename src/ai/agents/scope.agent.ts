@@ -13,7 +13,7 @@ export class ScopeAgent {
 
   async execute(
     jobData: ProposalJobData,
-    fileStoreName: string | null,
+    namespace: string | null,
   ): Promise<{
     'scope-of-work-introduction': string;
     'scope-of-work-summary': string;
@@ -22,26 +22,27 @@ export class ScopeAgent {
   }> {
     const startTime = Date.now();
     this.logger.log(`[SCOPE] Starting agent for proposal: ${jobData.id}`);
-    this.logger.log(`[SCOPE] File store available: ${fileStoreName ? 'YES' : 'NO'}`);
+    this.logger.log(`[SCOPE] Knowledge base namespace: ${namespace ? namespace : 'NONE'}`);
 
     let kbContext = '';
 
-    if (fileStoreName) {
-      const queries = [
-        'What are the main requirements and deliverables mentioned in the documents?',
-        'What technical specifications or implementation details are discussed?',
-        'What are the key milestones and phases of the project?',
-      ];
+    if (namespace) {
+      // Step 1: Use AI to generate dynamic queries based on proposal context
+      this.logger.log(`[SCOPE] Generating AI-powered dynamic queries based on proposal content...`);
+      const queries = await this.generateDynamicQueries(jobData);
 
-      this.logger.log(`[SCOPE] Querying knowledge base with ${queries.length} queries...`);
+      this.logger.log(`[SCOPE] Generated ${queries.length} dynamic queries`);
+      queries.forEach((q, i) => this.logger.log(`[SCOPE]   Query ${i + 1}: "${q}"`));
+
+      this.logger.log(`[SCOPE] Querying knowledge base...`);
 
       for (let i = 0; i < queries.length; i++) {
         const query = queries[i];
         const queryStartTime = Date.now();
 
         try {
-          this.logger.debug(`[SCOPE] KB Query ${i + 1}/${queries.length}: ${query.substring(0, 50)}...`);
-          const result = await this.knowledgeBaseService.queryFileStore(fileStoreName, query);
+          this.logger.log(`[SCOPE] KB Query ${i + 1}/${queries.length}: "${query}"`);
+          const result = await this.knowledgeBaseService.queryKnowledgeBase(namespace, query, 5);
           kbContext += `\n\nKB Query: ${query}\nResponse: ${result}`;
           this.logger.log(`[SCOPE] KB Query ${i + 1} completed in ${Date.now() - queryStartTime}ms - ${result.length} chars`);
         } catch (error: any) {
@@ -51,7 +52,7 @@ export class ScopeAgent {
 
       this.logger.log(`[SCOPE] Knowledge base context gathered - ${kbContext.length} chars total`);
     } else {
-      this.logger.log(`[SCOPE] Skipping KB queries - no file store`);
+      this.logger.log(`[SCOPE] Skipping KB queries - no namespace`);
     }
 
     const systemPrompt = `You are a professional proposal writer specializing in scope of work documentation. Your task is to generate a comprehensive scope of work section based on the provided information. You must respond with valid JSON only, no markdown or additional text.
@@ -116,5 +117,101 @@ Please generate a detailed scope of work section.`;
       this.logger.error(`[SCOPE] Stack: ${error.stack}`);
       throw error;
     }
+  }
+
+  /**
+   * Generate dynamic queries using AI based on proposal content
+   */
+  private async generateDynamicQueries(jobData: ProposalJobData): Promise<string[]> {
+    const queryGenStartTime = Date.now();
+
+    const systemPrompt = `You are a search query generator. Based on the proposal context provided, generate 3-5 specific search queries that would help retrieve relevant information from uploaded documents (PDFs, DOCXs, transcriptions) to write a comprehensive scope of work.
+
+The queries should focus on extracting:
+1. Project requirements and specifications
+2. Technical details and implementation approach
+3. Deliverables and milestones
+4. Any industry-specific or client-specific requirements
+
+Output ONLY a JSON array of query strings. No explanation, just the JSON array.
+Example: ["query 1", "query 2", "query 3"]`;
+
+    const userPrompt = `Generate search queries for this proposal:
+
+Title: ${jobData.title || 'N/A'}
+Client: ${jobData.client_name || 'N/A'}
+Industry: ${jobData.industry || 'N/A'}
+Summary: ${jobData.summary || 'N/A'}
+Goals: ${jobData.goals || 'N/A'}
+Scope: ${jobData.scope || 'N/A'}
+Deliverables: ${jobData.deliverables?.join(', ') || 'N/A'}`;
+
+    try {
+      this.logger.log(`[SCOPE] Calling OpenAI to generate dynamic queries...`);
+
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 500,
+      });
+
+      const content = response.choices[0]?.message?.content || '[]';
+      const tokensUsed = response.usage?.total_tokens || 0;
+
+      this.logger.log(`[SCOPE] Query generation completed - ${tokensUsed} tokens used`);
+      this.logger.log(`[SCOPE] Raw query response: ${content}`);
+
+      // Parse the JSON array
+      const queries = JSON.parse(content);
+
+      if (Array.isArray(queries) && queries.length > 0) {
+        this.logger.log(`[SCOPE] Successfully generated ${queries.length} dynamic queries in ${Date.now() - queryGenStartTime}ms`);
+        return queries;
+      }
+
+      // Fallback if parsing fails
+      this.logger.warn(`[SCOPE] Invalid query response, using fallback queries`);
+      return this.getFallbackQueries(jobData);
+    } catch (error: any) {
+      this.logger.error(`[SCOPE] Failed to generate dynamic queries: ${error.message}`);
+      this.logger.log(`[SCOPE] Using fallback queries`);
+      return this.getFallbackQueries(jobData);
+    }
+  }
+
+  /**
+   * Fallback queries if AI generation fails - still context-aware
+   */
+  private getFallbackQueries(jobData: ProposalJobData): string[] {
+    const queries: string[] = [];
+
+    // Base queries
+    queries.push('What are the main project requirements and deliverables?');
+    queries.push('What technical specifications or implementation details are mentioned?');
+
+    // Context-aware queries based on available data
+    if (jobData.industry) {
+      queries.push(`What ${jobData.industry} industry-specific requirements are mentioned?`);
+    }
+
+    if (jobData.title) {
+      queries.push(`What are the key objectives for ${jobData.title}?`);
+    }
+
+    if (jobData.goals) {
+      queries.push(`What approach is recommended to achieve: ${jobData.goals.substring(0, 100)}?`);
+    }
+
+    // Ensure we have at least 3 queries
+    if (queries.length < 3) {
+      queries.push('What are the project milestones and timeline expectations?');
+    }
+
+    this.logger.log(`[SCOPE] Generated ${queries.length} fallback queries`);
+    return queries.slice(0, 5); // Max 5 queries
   }
 }

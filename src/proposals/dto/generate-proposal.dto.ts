@@ -108,4 +108,9 @@ export class GenerateProposalDto {
   @IsOptional()
   @IsUUID()
   user_id?: string;
+
+  // Retry: If provided, creates a new version based on this proposal
+  @IsOptional()
+  @IsUUID()
+  proposal_id?: string;
 }

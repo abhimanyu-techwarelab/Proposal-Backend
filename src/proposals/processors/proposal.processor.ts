@@ -32,34 +32,44 @@ export class ProposalProcessor extends WorkerHost {
     this.logger.debug(`[JOB DATA] Full payload: ${JSON.stringify(jobData, null, 2)}`);
 
     try {
-      let fileStoreName: string | null = null;
-
       const hasAudioFiles = jobData.audio_storage_paths && jobData.audio_storage_paths.length > 0;
       const hasDocuments = jobData.document_storage_paths && jobData.document_storage_paths.length > 0;
 
       this.logger.log(`[STEP 1] Checking for audio/documents - Audio: ${hasAudioFiles ? jobData.audio_storage_paths!.length : 0}, Docs: ${hasDocuments ? jobData.document_storage_paths!.length : 0}`);
 
-      if (hasAudioFiles || hasDocuments) {
-        this.logger.log(`[STEP 2] Creating Gemini File Store...`);
-        const filename = this.utilsService.generateFilename();
-        this.logger.debug(`[STEP 2] Generated filename: ${filename}`);
+      // Check for existing namespace from previous attempt
+      this.logger.log(`[STEP 2] Checking database for existing Pinecone namespace...`);
+      let namespace = await this.proposalsService.getProposalNamespace(jobData.id);
 
-        fileStoreName = await this.knowledgeBaseService.createFileStore(filename);
-        this.logger.log(`[STEP 2] File store created: ${fileStoreName}`);
+      if (namespace) {
+        this.logger.log(`[STEP 2] FOUND existing namespace in DB: ${namespace}`);
+        this.logger.log(`[STEP 2] This is a RETRY - documents already indexed in Pinecone`);
+        this.logger.log(`[STEP 2-3] Skipping document indexing - reusing existing vectors`);
+      } else if (hasAudioFiles || hasDocuments) {
+        this.logger.log(`[STEP 2] No existing namespace found - this is a FRESH attempt`);
+        this.logger.log(`[STEP 2] Creating new Pinecone namespace...`);
+        namespace = await this.knowledgeBaseService.createNamespace(jobData.id);
+        this.logger.log(`[STEP 2] Namespace created: ${namespace}`);
 
         if (hasAudioFiles) {
           this.logger.log(`[STEP 3a] Processing ${jobData.audio_storage_paths!.length} audio file(s)...`);
-          await this.processAudioFiles(jobData.audio_storage_paths!, fileStoreName);
+          await this.processAudioFiles(jobData.audio_storage_paths!, namespace, jobData.id);
           this.logger.log(`[STEP 3a] Audio processing complete`);
         }
 
         if (hasDocuments) {
           this.logger.log(`[STEP 3b] Processing ${jobData.document_storage_paths!.length} document(s)...`);
-          await this.processDocuments(jobData.document_storage_paths!, fileStoreName);
+          await this.processDocuments(jobData.document_storage_paths!, namespace, jobData.id);
           this.logger.log(`[STEP 3b] Document processing complete`);
         }
+
+        // Save namespace to DB after successful indexing
+        this.logger.log(`[STEP 3c] Saving namespace to database for future retry reuse...`);
+        await this.proposalsService.updateNamespace(jobData.id, namespace);
+        this.logger.log(`[STEP 3c] Namespace "${namespace}" saved to pinecone_namespace column`);
       } else {
-        this.logger.log(`[STEP 2-3] Skipping file store creation - no audio/documents provided`);
+        this.logger.log(`[STEP 2] No existing namespace found in DB`);
+        this.logger.log(`[STEP 2-3] Skipping namespace creation - no audio/documents provided`);
       }
 
       this.logger.log(`[STEP 4] Starting AI agent execution (parallel: GeneralInfo + Scope)...`);
@@ -67,7 +77,7 @@ export class ProposalProcessor extends WorkerHost {
 
       const [generalInfoOutput, scopeOutput] = await Promise.all([
         this.aiService.executeGeneralInfoAgent(jobData),
-        this.aiService.executeScopeAgent(jobData, fileStoreName),
+        this.aiService.executeScopeAgent(jobData, namespace),
       ]);
 
       this.logger.log(`[STEP 4] GeneralInfo + Scope agents completed in ${Date.now() - aiStartTime}ms`);
@@ -107,7 +117,11 @@ export class ProposalProcessor extends WorkerHost {
     }
   }
 
-  private async processAudioFiles(audioPaths: string[], fileStoreName: string): Promise<void> {
+  private async processAudioFiles(
+    audioPaths: string[],
+    namespace: string,
+    proposalId: string,
+  ): Promise<void> {
     this.logger.log(`[AUDIO] Starting to process ${audioPaths.length} audio file(s)`);
 
     for (let i = 0; i < audioPaths.length; i++) {
@@ -127,26 +141,19 @@ export class ProposalProcessor extends WorkerHost {
         this.logger.debug(`[AUDIO ${i + 1}] Transcription preview: ${transcribedText.substring(0, 200)}...`);
 
         const textBuffer = this.utilsService.textToFileBuffer(transcribedText);
-
         const filename = `transcription_${Date.now()}.txt`;
-        this.logger.debug(`[AUDIO ${i + 1}] Uploading to Gemini as: ${filename}`);
-        const uploadedFile = await this.knowledgeBaseService.uploadFile(
+
+        this.logger.debug(`[AUDIO ${i + 1}] Indexing transcription to Pinecone...`);
+        const result = await this.knowledgeBaseService.indexDocument(
+          namespace,
           textBuffer,
           'text/plain',
           filename,
+          proposalId,
+          'transcription',
         );
-        this.logger.log(`[AUDIO ${i + 1}] Uploaded to Gemini: ${uploadedFile.name}`);
 
-        this.logger.debug(`[AUDIO ${i + 1}] Waiting for file to be ACTIVE...`);
-        const isActive = await this.knowledgeBaseService.waitForFileActive(uploadedFile.name);
-        if (!isActive) {
-          throw new Error(`File ${uploadedFile.name} failed to become ACTIVE`);
-        }
-
-        this.logger.debug(`[AUDIO ${i + 1}] Importing to file store...`);
-        await this.knowledgeBaseService.importFileToStore(fileStoreName, uploadedFile.name);
-
-        this.logger.log(`[AUDIO ${i + 1}] Complete in ${Date.now() - audioStartTime}ms`);
+        this.logger.log(`[AUDIO ${i + 1}] Complete in ${Date.now() - audioStartTime}ms - ${result.chunksIndexed} chunks indexed`);
       } catch (error: any) {
         this.logger.error(`[AUDIO ${i + 1}] FAILED: ${error.message}`);
         this.logger.error(`[AUDIO ${i + 1}] Stack: ${error.stack}`);
@@ -157,7 +164,11 @@ export class ProposalProcessor extends WorkerHost {
     this.logger.log(`[AUDIO] All ${audioPaths.length} audio file(s) processed successfully`);
   }
 
-  private async processDocuments(documentPaths: string[], fileStoreName: string): Promise<void> {
+  private async processDocuments(
+    documentPaths: string[],
+    namespace: string,
+    proposalId: string,
+  ): Promise<void> {
     this.logger.log(`[DOC] Starting to process ${documentPaths.length} document(s)`);
 
     for (let i = 0; i < documentPaths.length; i++) {
@@ -175,24 +186,17 @@ export class ProposalProcessor extends WorkerHost {
         const filename = this.getCleanFilename(documentPath);
         this.logger.debug(`[DOC ${i + 1}] Detected MIME type: ${mimeType}, filename: ${filename}`);
 
-        this.logger.debug(`[DOC ${i + 1}] Uploading to Gemini...`);
-        const uploadedFile = await this.knowledgeBaseService.uploadFile(
+        this.logger.debug(`[DOC ${i + 1}] Indexing document to Pinecone...`);
+        const result = await this.knowledgeBaseService.indexDocument(
+          namespace,
           documentBuffer,
           mimeType,
           filename,
+          proposalId,
+          'document',
         );
-        this.logger.log(`[DOC ${i + 1}] Uploaded to Gemini: ${uploadedFile.name}`);
 
-        this.logger.debug(`[DOC ${i + 1}] Waiting for file to be ACTIVE...`);
-        const isActive = await this.knowledgeBaseService.waitForFileActive(uploadedFile.name);
-        if (!isActive) {
-          throw new Error(`File ${uploadedFile.name} failed to become ACTIVE`);
-        }
-
-        this.logger.debug(`[DOC ${i + 1}] Importing to file store...`);
-        await this.knowledgeBaseService.importFileToStore(fileStoreName, uploadedFile.name);
-
-        this.logger.log(`[DOC ${i + 1}] Complete in ${Date.now() - docStartTime}ms`);
+        this.logger.log(`[DOC ${i + 1}] Complete in ${Date.now() - docStartTime}ms - ${result.chunksIndexed} chunks indexed`);
       } catch (error: any) {
         this.logger.error(`[DOC ${i + 1}] FAILED: ${error.message}`);
         this.logger.error(`[DOC ${i + 1}] Stack: ${error.stack}`);
