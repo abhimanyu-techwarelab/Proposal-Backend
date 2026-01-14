@@ -1,16 +1,35 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Logger, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { OrganizationsService } from './organizations.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { AddUserToOrganizationDto } from './dto/add-user-to-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 
+@ApiTags('organizations')
+@ApiBearerAuth('JWT-auth')
 @Controller('organizations')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class OrganizationsController {
   private readonly logger = new Logger(OrganizationsController.name);
 
   constructor(private readonly organizationsService: OrganizationsService) {}
 
   @Post('create')
+  @RequirePermission('create_organization', 'read_organization')
+  @ApiOperation({
+    summary: 'Create a new organization',
+    description: 'Creates a new organization. Requires create_organization or read_organization permission.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Organization created successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Bad request - validation error' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
   async create(@Body() dto: CreateOrganizationDto) {
     this.logger.log(`[REQUEST] POST /organizations/create`);
 
@@ -23,6 +42,24 @@ export class OrganizationsController {
   }
 
   @Delete('delete/:id')
+  @RequirePermission('delete_organization', 'read_organization')
+  @ApiOperation({
+    summary: 'Delete organization (soft delete)',
+    description: 'Soft deletes an organization. The organization is marked as deleted but not removed from the database. Requires delete_organization or read_organization permission.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Organization ID (UUID)',
+    type: String,
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Organization deleted successfully',
+  })
+  @ApiResponse({ status: 404, description: 'Organization not found' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
   async delete(@Param('id') id: string) {
     this.logger.log(`[REQUEST] DELETE /organizations/delete/${id}`);
 
@@ -35,6 +72,16 @@ export class OrganizationsController {
   }
 
   @Post('add-user')
+  @ApiOperation({
+    summary: 'Add user to organization',
+    description: 'Adds an existing user to an organization.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'User added to organization successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Bad request - validation error' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async addUser(@Body() dto: AddUserToOrganizationDto) {
     this.logger.log(`[REQUEST] POST /organizations/add-user`);
 
@@ -47,6 +94,25 @@ export class OrganizationsController {
   }
 
   @Put('update/:id')
+  @RequirePermission('update_organization', 'read_organization')
+  @ApiOperation({
+    summary: 'Update organization',
+    description: 'Updates an existing organization. Only provided fields will be updated. Requires update_organization or read_organization permission.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Organization ID (UUID)',
+    type: String,
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Organization updated successfully',
+  })
+  @ApiResponse({ status: 404, description: 'Organization not found' })
+  @ApiResponse({ status: 400, description: 'Bad request - validation error' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
   async update(@Param('id') id: string, @Body() dto: UpdateOrganizationDto) {
     this.logger.log(`[REQUEST] PUT /organizations/update/${id}`);
 
@@ -59,6 +125,23 @@ export class OrganizationsController {
   }
 
   @Get('count')
+  @RequirePermission('view_dashboard')
+  @ApiOperation({
+    summary: 'Get organization count',
+    description: 'Returns the total count of organizations. Requires view_dashboard permission.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Organization count retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        count: { type: 'number', example: 25 },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
   async count() {
     this.logger.log(`[REQUEST] GET /organizations/count`);
 
@@ -71,6 +154,31 @@ export class OrganizationsController {
   }
 
   @Get()
+  @RequirePermission('read_organization')
+  @ApiOperation({
+    summary: 'Get all organizations',
+    description: 'Retrieves a list of organizations with optional pagination. Requires read_organization permission.',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Page number for pagination',
+    type: Number,
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Number of items per page',
+    type: Number,
+    example: 10,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Organizations retrieved successfully',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
   async findAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -93,6 +201,24 @@ export class OrganizationsController {
   }
 
   @Get(':id')
+  @RequirePermission('read_organization')
+  @ApiOperation({
+    summary: 'Get organization by ID',
+    description: 'Retrieves a specific organization by its ID. Requires read_organization permission.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Organization ID (UUID)',
+    type: String,
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Organization retrieved successfully',
+  })
+  @ApiResponse({ status: 404, description: 'Organization not found' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
   async findOne(@Param('id') id: string) {
     this.logger.log(`[REQUEST] GET /organizations/${id}`);
 

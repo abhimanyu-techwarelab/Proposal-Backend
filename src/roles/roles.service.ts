@@ -1,9 +1,14 @@
-import { Injectable, Logger, ConflictException, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Role } from './entities/role.entity';
-import { CreateRoleDto } from './dto/create-role.dto';
-import { UpdateRoleDto } from './dto/update-role.dto';
+import {
+  Injectable,
+  Logger,
+  ConflictException,
+  NotFoundException,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { Role } from "./entities/role.entity";
+import { CreateRoleDto } from "./dto/create-role.dto";
+import { UpdateRoleDto } from "./dto/update-role.dto";
 
 @Injectable()
 export class RolesService {
@@ -11,7 +16,7 @@ export class RolesService {
 
   constructor(
     @InjectRepository(Role)
-    private roleRepository: Repository<Role>,
+    private roleRepository: Repository<Role>
   ) {
     this.logger.log(`[INIT] RolesService initialized`);
   }
@@ -19,16 +24,19 @@ export class RolesService {
   async create(dto: CreateRoleDto): Promise<Role> {
     this.logger.log(`[CREATE] Creating role: ${dto.name}`);
 
-    // Check if role name already exists (case insensitive)
+    // Check if role name already exists within the organization (case insensitive)
     const existingRole = await this.roleRepository
-      .createQueryBuilder('role')
-      .where('LOWER(role.name) = LOWER(:name)', { name: dto.name })
-      .andWhere('role.is_deleted = :isDeleted', { isDeleted: false })
+      .createQueryBuilder("role")
+      .where("LOWER(role.name) = LOWER(:name)", { name: dto.name })
+      .andWhere("role.organization_id = :organizationId", { organizationId: dto.organization_id })
+      .andWhere("role.is_deleted = :isDeleted", { isDeleted: false })
       .getOne();
 
     if (existingRole) {
-      this.logger.warn(`[CREATE] Role with name "${dto.name}" already exists`);
-      throw new ConflictException(`Role with name "${dto.name}" already exists`);
+      this.logger.warn(`[CREATE] Role with name "${dto.name}" already exists in organization ${dto.organization_id}`);
+      throw new ConflictException(
+        `Role with name "${dto.name}" already exists in this organization`
+      );
     }
 
     const role = this.roleRepository.create({
@@ -44,8 +52,23 @@ export class RolesService {
     return savedRole;
   }
 
-  async findAll(organizationId: string, page?: number, limit?: number): Promise<Role[] | { data: Role[]; total: number; page: number; limit: number; totalPages: number }> {
-    this.logger.log(`[FIND_ALL] Fetching roles for organization: ${organizationId} - page: ${page}, limit: ${limit}`);
+  async findAll(
+    organizationId: string,
+    page?: number,
+    limit?: number
+  ): Promise<
+    | Role[]
+    | {
+        data: Role[];
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+      }
+  > {
+    this.logger.log(
+      `[FIND_ALL] Fetching roles for organization: ${organizationId} - page: ${page}, limit: ${limit}`
+    );
 
     if (page !== undefined && limit !== undefined) {
       const skip = (page - 1) * limit;
@@ -56,7 +79,9 @@ export class RolesService {
         take: limit,
       });
 
-      this.logger.log(`[FIND_ALL] Found ${roles.length} of ${total} roles (page ${page})`);
+      this.logger.log(
+        `[FIND_ALL] Found ${roles.length} of ${total} roles (page ${page})`
+      );
 
       return {
         data: roles,
@@ -84,7 +109,7 @@ export class RolesService {
     });
 
     if (!role) {
-      throw new NotFoundException('Role not found');
+      throw new NotFoundException("Role not found");
     }
 
     this.logger.log(`[FIND_ONE] Found role: ${id}`);
@@ -100,21 +125,25 @@ export class RolesService {
     });
 
     if (!role) {
-      throw new NotFoundException('Role not found');
+      throw new NotFoundException("Role not found");
     }
 
     // Check if new name already exists (case insensitive)
     if (dto.name) {
       const existingRole = await this.roleRepository
-        .createQueryBuilder('role')
-        .where('LOWER(role.name) = LOWER(:name)', { name: dto.name })
-        .andWhere('role.is_deleted = :isDeleted', { isDeleted: false })
-        .andWhere('role.id != :id', { id })
+        .createQueryBuilder("role")
+        .where("LOWER(role.name) = LOWER(:name)", { name: dto.name })
+        .andWhere("role.is_deleted = :isDeleted", { isDeleted: false })
+        .andWhere("role.id != :id", { id })
         .getOne();
 
       if (existingRole) {
-        this.logger.warn(`[UPDATE] Role with name "${dto.name}" already exists`);
-        throw new ConflictException(`Role with name "${dto.name}" already exists`);
+        this.logger.warn(
+          `[UPDATE] Role with name "${dto.name}" already exists`
+        );
+        throw new ConflictException(
+          `Role with name "${dto.name}" already exists`
+        );
       }
     }
 
@@ -134,7 +163,7 @@ export class RolesService {
     });
 
     if (!role) {
-      throw new NotFoundException('Role not found');
+      throw new NotFoundException("Role not found");
     }
 
     role.is_deleted = true;

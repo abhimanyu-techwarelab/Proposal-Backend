@@ -29,6 +29,9 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   last_name: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  profile_image: string;
+
   @Column({ type: 'boolean', default: false })
   is_deleted: boolean;
 

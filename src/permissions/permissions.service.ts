@@ -25,4 +25,16 @@ export class PermissionsService {
 
     return permissions;
   }
+
+  async findAllNonSaasAdmin(): Promise<Permission[]> {
+    this.logger.log(`[FIND_ALL] Fetching all non-saas-admin permissions`);
+
+    const permissions = await this.permissionRepository.find({
+      where: { is_saas_admin: false },
+    });
+
+    this.logger.log(`[FIND_ALL] Found ${permissions.length} non-saas-admin permissions`);
+
+    return permissions;
+  }
 }

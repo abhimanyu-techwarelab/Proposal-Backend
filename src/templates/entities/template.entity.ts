@@ -4,29 +4,29 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-} from 'typeorm';
+} from "typeorm";
 
-@Entity('templates')
+@Entity("templates")
 export class Template {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryGeneratedColumn("uuid")
   id: string;
 
-  @Column({ type: 'varchar' })
+  @Column({ type: "varchar" })
   name: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   description: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   html: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   preview_image: string;
 
-  @Column({ type: 'boolean', default: true })
-  is_active: boolean;
+  @Column({ type: "boolean", default: false })
+  is_deleted: boolean;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: "uuid", nullable: true })
   created_by: string;
 
   @CreateDateColumn()
@@ -34,4 +34,7 @@ export class Template {
 
   @UpdateDateColumn({ nullable: true })
   updated_at: Date;
+
+  @Column({ type: "uuid", nullable: true })
+  updated_by: string;
 }

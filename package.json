@@ -8,7 +8,8 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "swagger:generate": "ts-node -r tsconfig-paths/register src/swagger-generator.ts"
   },
   "keywords": [],
   "author": "",
@@ -24,6 +25,7 @@
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^10.4.20",
+    "@nestjs/swagger": "^8.1.1",
     "@nestjs/typeorm": "^11.0.0",
     "@pinecone-database/pinecone": "^6.1.3",
     "@supabase/supabase-js": "^2.78.0",
@@ -42,6 +44,7 @@
     "passport-jwt": "^4.0.1",
     "pdf-parse": "^2.4.5",
     "pg": "^8.16.3",
+    "puppeteer": "^24.34.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "typeorm": "^0.3.28",

@@ -1,8 +1,9 @@
-import { Injectable, Logger, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from './entities/user.entity';
+import { Role } from '../roles/entities/role.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
@@ -13,6 +14,8 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(Role)
+    private roleRepository: Repository<Role>,
   ) {
     this.logger.log(`[INIT] UsersService initialized`);
   }
@@ -49,18 +52,55 @@ export class UsersService {
     return userWithoutPassword as User;
   }
 
-  async findAll(organizationId: string, page?: number, limit?: number): Promise<User[] | { data: User[]; total: number; page: number; limit: number; totalPages: number }> {
-    this.logger.log(`[FIND_ALL] Fetching users for organization: ${organizationId} - page: ${page}, limit: ${limit}`);
+  async findAll(
+    organizationId: string,
+    page?: number,
+    limit?: number,
+    search?: string,
+    roleId?: string
+  ): Promise<User[] | { data: User[]; total: number; page: number; limit: number; totalPages: number }> {
+    this.logger.log(`[FIND_ALL] Fetching users for organization: ${organizationId} - page: ${page}, limit: ${limit}, search: ${search}, roleId: ${roleId}`);
+
+    const queryBuilder = this.userRepository.createQueryBuilder('user')
+      .where('user.organization_id = :organizationId', { organizationId })
+      .andWhere('user.is_deleted = :isDeleted', { isDeleted: false });
+
+    // Apply search filter
+    if (search) {
+      const searchTerm = `%${search}%`;
+      queryBuilder.andWhere(
+        '(user.email ILIKE :search OR user.first_name ILIKE :search OR user.last_name ILIKE :search)',
+        { search: searchTerm }
+      );
+    }
+
+    // Apply role filter
+    if (roleId) {
+      queryBuilder.andWhere('user.role_id = :roleId', { roleId });
+    }
+
+    // Select specific fields
+    queryBuilder.select([
+      'user.id',
+      'user.organization_id',
+      'user.role_id',
+      'user.email',
+      'user.first_name',
+      'user.last_name',
+      'user.profile_image',
+      'user.is_deleted',
+      'user.created_at',
+      'user.updated_at',
+    ]);
 
     if (page !== undefined && limit !== undefined) {
       const skip = (page - 1) * limit;
 
-      const [users, total] = await this.userRepository.findAndCount({
-        where: { organization_id: organizationId, is_deleted: false },
-        select: ['id', 'organization_id', 'role_id', 'email', 'first_name', 'last_name', 'is_deleted', 'created_at', 'updated_at'],
-        skip,
-        take: limit,
-      });
+      const [users, total] = await queryBuilder
+        .orderBy('user.created_at', 'DESC')
+        .skip(skip)
+        .take(limit)
+        .getManyAndCount();
 
       this.logger.log(`[FIND_ALL] Found ${users.length} of ${total} users (page ${page})`);
 
@@ -73,10 +113,9 @@ export class UsersService {
       };
     }
 
-    const users = await this.userRepository.find({
-      where: { organization_id: organizationId, is_deleted: false },
-      select: ['id', 'organization_id', 'role_id', 'email', 'first_name', 'last_name', 'is_deleted', 'created_at', 'updated_at'],
-    });
+    const users = await queryBuilder
+      .orderBy('user.created_at', 'DESC')
+      .getMany();
 
     this.logger.log(`[FIND_ALL] Found ${users.length} users`);
 
@@ -88,7 +127,7 @@ export class UsersService {
 
     const user = await this.userRepository.findOne({
       where: { id, is_deleted: false },
-      select: ['id', 'organization_id', 'role_id', 'email', 'first_name', 'last_name', 'is_deleted', 'created_at', 'updated_at'],
+      select: ['id', 'organization_id', 'role_id', 'email', 'first_name', 'last_name', 'profile_image', 'is_deleted', 'created_at', 'updated_at'],
     });
 
     if (!user) {
@@ -119,6 +158,17 @@ export class UsersService {
 
       if (existingUser) {
         throw new ConflictException('Email already exists');
+      }
+    }
+
+    // Validate role exists if role_id is provided
+    if (dto.role_id !== undefined) {
+      const role = await this.roleRepository.findOne({
+        where: { id: dto.role_id, is_deleted: false },
+      });
+
+      if (!role) {
+        throw new BadRequestException(`Role with ID ${dto.role_id} not found`);
       }
     }
 

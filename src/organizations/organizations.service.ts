@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Organization } from './entities/organization.entity';
@@ -6,6 +6,9 @@ import { User } from '../users/entities/user.entity';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { AddUserToOrganizationDto } from './dto/add-user-to-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
+import { RolesService } from '../roles/roles.service';
+import { PermissionsService } from '../permissions/permissions.service';
+import { RolePermissionsService } from '../permissions/role-permissions.service';
 
 @Injectable()
 export class OrganizationsService {
@@ -16,6 +19,9 @@ export class OrganizationsService {
     private organizationRepository: Repository<Organization>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private rolesService: RolesService,
+    private permissionsService: PermissionsService,
+    private rolePermissionsService: RolePermissionsService,
   ) {
     this.logger.log(`[INIT] OrganizationsService initialized`);
   }
@@ -48,6 +54,54 @@ export class OrganizationsService {
 
     this.logger.log(`[CREATE] Organization created with ID: ${savedOrganization.id}, primary_email: ${user.email}`);
     this.logger.log(`[CREATE] User ${dto.user_id} assigned to organization ${savedOrganization.id}`);
+
+    try {
+      // Create "Super Admin" role for the organization
+      this.logger.log(`[CREATE] Creating Super Admin role for organization ${savedOrganization.id}`);
+      const superAdminRole = await this.rolesService.create({
+        name: 'Super Admin',
+        organization_id: savedOrganization.id,
+        description: 'Has all the permissions for the organization',
+      });
+      this.logger.log(`[CREATE] Super Admin role created with ID: ${superAdminRole.id}`);
+
+      // Fetch all permissions where is_saas_admin=false
+      this.logger.log(`[CREATE] Fetching all non-saas-admin permissions`);
+      const permissions = await this.permissionsService.findAllNonSaasAdmin();
+      this.logger.log(`[CREATE] Found ${permissions.length} non-saas-admin permissions`);
+
+      // Create role_permissions entries for all those permissions
+      if (permissions.length > 0) {
+        this.logger.log(`[CREATE] Assigning ${permissions.length} permissions to Super Admin role`);
+        const rolePermissionItems = permissions.map((permission) => ({
+          role_id: superAdminRole.id,
+          permission_id: permission.id,
+          is_active: true,
+        }));
+
+        await this.rolePermissionsService.createOrUpdateBulk(rolePermissionItems);
+        this.logger.log(`[CREATE] All permissions assigned to Super Admin role`);
+      }
+
+      // Assign the Super Admin role to the user
+      this.logger.log(`[CREATE] Assigning Super Admin role to user ${dto.user_id}`);
+      user.role_id = superAdminRole.id;
+      await this.userRepository.save(user);
+      this.logger.log(`[CREATE] Super Admin role assigned to user ${dto.user_id}`);
+    } catch (error) {
+      this.logger.error(`[CREATE] Error creating Super Admin role or assigning permissions: ${error.message || error}`);
+      this.logger.error(`[CREATE] Stack trace: ${error.stack || 'No stack trace available'}`);
+      
+      // If it's already a NestJS exception, re-throw it
+      if (error.statusCode || error.status) {
+        throw error;
+      }
+      
+      // Otherwise, wrap it in a more descriptive error
+      throw new InternalServerErrorException(
+        `Failed to create Super Admin role for organization: ${error.message || 'Unknown error'}`
+      );
+    }
 
     return savedOrganization;
   }

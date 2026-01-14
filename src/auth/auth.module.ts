@@ -6,6 +6,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { PermissionsGuard } from './guards/permissions.guard';
 import { User } from '../users/entities/user.entity';
 import { RolePermission } from '../permissions/entities/role-permission.entity';
 import { Permission } from '../permissions/entities/permission.entity';
@@ -29,7 +31,7 @@ import { Permission } from '../permissions/entities/permission.entity';
     TypeOrmModule.forFeature([User, RolePermission, Permission]),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService, JwtStrategy, PassportModule],
+  providers: [AuthService, JwtStrategy, JwtAuthGuard, PermissionsGuard],
+  exports: [AuthService, JwtStrategy, PassportModule, JwtAuthGuard, PermissionsGuard],
 })
 export class AuthModule {}

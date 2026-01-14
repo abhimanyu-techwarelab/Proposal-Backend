@@ -1,18 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
-import { GenerateProposalDto } from './dto/generate-proposal.dto';
+import { Injectable, Logger, HttpException, HttpStatus } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
+import { GenerateProposalDto } from "./dto/generate-proposal.dto";
 import {
   Proposal,
   ProposalJobData,
   GeneralInfoOutput,
   ScopeOutput,
   TimelineOutput,
-} from './entities/proposal.entity';
-import { TemplatesService } from '../templates/templates.service';
-import { DataTransformService } from '../common/data-transform.service';
+} from "./entities/proposal.entity";
+import { TemplatesService } from "../templates/templates.service";
+import { DataTransformService } from "../common/data-transform.service";
 
 @Injectable()
 export class ProposalsService {
@@ -21,9 +21,9 @@ export class ProposalsService {
   constructor(
     @InjectRepository(Proposal)
     private proposalRepository: Repository<Proposal>,
-    @InjectQueue('proposal-generation') private proposalQueue: Queue,
+    @InjectQueue("proposal-generation") private proposalQueue: Queue,
     private templatesService: TemplatesService,
-    private dataTransformService: DataTransformService,
+    private dataTransformService: DataTransformService
   ) {
     this.logger.log(`[INIT] ProposalsService initialized with TypeORM`);
   }
@@ -34,7 +34,9 @@ export class ProposalsService {
 
     if (dto.proposal_id) {
       // RETRY MODE - Create new proposal based on existing one
-      this.logger.log(`[API] RETRY MODE - Creating new version based on proposal: ${dto.proposal_id}`);
+      this.logger.log(
+        `[API] RETRY MODE - Creating new version based on proposal: ${dto.proposal_id}`
+      );
       return this.createRetryProposal(dto);
     } else {
       // NEW MODE - Create fresh proposal
@@ -43,7 +45,9 @@ export class ProposalsService {
     }
   }
 
-  private async createNewProposal(dto: GenerateProposalDto): Promise<{ id: string }> {
+  private async createNewProposal(
+    dto: GenerateProposalDto
+  ): Promise<{ id: string }> {
     const subscriptionId = dto.subscription_id || dto.organization_id;
     this.logger.log(`[NEW] subscription_id: ${subscriptionId}`);
     this.logger.log(`[NEW] template_id: ${dto.template_id}`);
@@ -69,20 +73,24 @@ export class ProposalsService {
       deliverables: dto.deliverables,
       start_date: dto.start_date ? new Date(dto.start_date) : undefined,
       end_date: dto.end_date ? new Date(dto.end_date) : undefined,
-      date_of_proposal: dto.date_of_proposal ? new Date(dto.date_of_proposal) : undefined,
+      date_of_proposal: dto.date_of_proposal
+        ? new Date(dto.date_of_proposal)
+        : undefined,
       milestones: dto.milestones,
       total_budget: dto.total_budget,
       currency: dto.currency,
       billing_type: dto.billing_type,
       team_members: dto.team_members,
       submitted_to: dto.submitted_to,
-      status: 'processing',
+      status: "processing",
       version_number: 1,
     });
 
     const savedProposal = await this.proposalRepository.save(proposal);
     const proposalId = savedProposal.id;
-    this.logger.log(`[NEW] Proposal created with ID: ${proposalId} (version: 1)`);
+    this.logger.log(
+      `[NEW] Proposal created with ID: ${proposalId} (version: 1)`
+    );
 
     await this.queueProposalJob(savedProposal, dto);
 
@@ -92,7 +100,9 @@ export class ProposalsService {
     return { id: proposalId };
   }
 
-  private async createRetryProposal(dto: GenerateProposalDto): Promise<{ id: string }> {
+  private async createRetryProposal(
+    dto: GenerateProposalDto
+  ): Promise<{ id: string }> {
     const parentId = dto.proposal_id!;
     this.logger.log(`[RETRY] Fetching parent proposal: ${parentId}`);
 
@@ -106,32 +116,43 @@ export class ProposalsService {
       throw new Error(`Parent proposal not found: ${parentId}`);
     }
 
-    this.logger.log(`[RETRY] Parent proposal found - version: ${parent.version_number}`);
+    this.logger.log(
+      `[RETRY] Parent proposal found - version: ${parent.version_number}`
+    );
 
     // 2. Calculate next version number
     const nextVersion = await this.getNextVersionNumber(parentId);
     this.logger.log(`[RETRY] Next version number: ${nextVersion}`);
 
     // 3. Determine pinecone_namespace
-    const hasNewDocuments = dto.document_storage_paths && dto.document_storage_paths.length > 0;
-    const hasNewAudio = dto.audio_storage_paths && dto.audio_storage_paths.length > 0;
+    const hasNewDocuments =
+      dto.document_storage_paths && dto.document_storage_paths.length > 0;
+    const hasNewAudio =
+      dto.audio_storage_paths && dto.audio_storage_paths.length > 0;
 
     let pineconeNamespace: string | undefined = undefined;
     if (hasNewDocuments || hasNewAudio) {
-      this.logger.log(`[RETRY] New documents/audio provided - will create fresh index`);
+      this.logger.log(
+        `[RETRY] New documents/audio provided - will create fresh index`
+      );
       pineconeNamespace = undefined;
     } else {
-      this.logger.log(`[RETRY] No new documents - looking up latest namespace in chain...`);
+      this.logger.log(
+        `[RETRY] No new documents - looking up latest namespace in chain...`
+      );
       pineconeNamespace = await this.getLatestNamespaceInChain(parentId);
       if (pineconeNamespace) {
         this.logger.log(`[RETRY] Reusing namespace: ${pineconeNamespace}`);
       } else {
-        this.logger.log(`[RETRY] No namespace found in chain - will create fresh index`);
+        this.logger.log(
+          `[RETRY] No namespace found in chain - will create fresh index`
+        );
       }
     }
 
     // 4. Create new proposal (use DTO values if provided, else copy from parent)
-    const subscriptionId = dto.subscription_id || dto.organization_id || parent.subscription_id;
+    const subscriptionId =
+      dto.subscription_id || dto.organization_id || parent.subscription_id;
 
     const newProposal = this.proposalRepository.create({
       parent_id: parentId,
@@ -145,27 +166,33 @@ export class ProposalsService {
       client_email: dto.client_email ?? parent.client_email,
       links: dto.links ?? parent.links,
       industry: dto.industry ?? parent.industry,
-      audio_storage_paths: dto.audio_storage_paths ?? parent.audio_storage_paths,
-      document_storage_paths: dto.document_storage_paths ?? parent.document_storage_paths,
+      audio_storage_paths:
+        dto.audio_storage_paths ?? parent.audio_storage_paths,
+      document_storage_paths:
+        dto.document_storage_paths ?? parent.document_storage_paths,
       summary: dto.summary ?? parent.summary,
       goals: dto.goals ?? parent.goals,
       scope: dto.scope ?? parent.scope,
       deliverables: dto.deliverables ?? parent.deliverables,
       start_date: dto.start_date ? new Date(dto.start_date) : parent.start_date,
       end_date: dto.end_date ? new Date(dto.end_date) : parent.end_date,
-      date_of_proposal: dto.date_of_proposal ? new Date(dto.date_of_proposal) : parent.date_of_proposal,
+      date_of_proposal: dto.date_of_proposal
+        ? new Date(dto.date_of_proposal)
+        : parent.date_of_proposal,
       milestones: dto.milestones ?? parent.milestones,
       total_budget: dto.total_budget ?? parent.total_budget,
       currency: dto.currency ?? parent.currency,
       billing_type: dto.billing_type ?? parent.billing_type,
       team_members: dto.team_members ?? parent.team_members,
       submitted_to: dto.submitted_to ?? parent.submitted_to,
-      status: 'processing',
+      status: "processing",
     });
 
     const savedProposal = await this.proposalRepository.save(newProposal);
     const proposalId = savedProposal.id;
-    this.logger.log(`[RETRY] New proposal created: ${proposalId} (parent: ${parentId}, version: ${nextVersion})`);
+    this.logger.log(
+      `[RETRY] New proposal created: ${proposalId} (parent: ${parentId}, version: ${nextVersion})`
+    );
 
     await this.queueProposalJob(savedProposal, dto);
 
@@ -180,46 +207,57 @@ export class ProposalsService {
     let rootId = proposalId;
     let current = await this.proposalRepository.findOne({
       where: { id: proposalId },
-      select: ['parent_id', 'version_number'],
+      select: ["parent_id", "version_number"],
     });
 
     while (current?.parent_id) {
       rootId = current.parent_id;
       current = await this.proposalRepository.findOne({
         where: { id: current.parent_id },
-        select: ['parent_id', 'version_number'],
+        select: ["parent_id", "version_number"],
       });
     }
 
     // Find max version number in the entire chain (root + all descendants)
     const maxVersionResult = await this.proposalRepository
-      .createQueryBuilder('proposal')
-      .select('MAX(proposal.version_number)', 'maxVersion')
-      .where('proposal.id = :rootId OR proposal.parent_id = :rootId', { rootId })
-      .orWhere('proposal.parent_id IN (SELECT id FROM proposals WHERE parent_id = :rootId)', { rootId })
+      .createQueryBuilder("proposal")
+      .select("MAX(proposal.version_number)", "maxVersion")
+      .where("proposal.id = :rootId OR proposal.parent_id = :rootId", {
+        rootId,
+      })
+      .orWhere(
+        "proposal.parent_id IN (SELECT id FROM proposals WHERE parent_id = :rootId)",
+        { rootId }
+      )
       .getRawOne();
 
     const maxVersion = maxVersionResult?.maxVersion || 1;
-    this.logger.log(`[VERSION] Root proposal: ${rootId}, Max version in chain: ${maxVersion}`);
+    this.logger.log(
+      `[VERSION] Root proposal: ${rootId}, Max version in chain: ${maxVersion}`
+    );
 
     return maxVersion + 1;
   }
 
-  private async getLatestNamespaceInChain(proposalId: string): Promise<string | undefined> {
-    this.logger.log(`[NAMESPACE] Looking up latest namespace in chain for proposal: ${proposalId}`);
+  private async getLatestNamespaceInChain(
+    proposalId: string
+  ): Promise<string | undefined> {
+    this.logger.log(
+      `[NAMESPACE] Looking up latest namespace in chain for proposal: ${proposalId}`
+    );
 
     // 1. Find root proposal (trace back through parent_id chain)
     let rootId = proposalId;
     let current = await this.proposalRepository.findOne({
       where: { id: proposalId },
-      select: ['parent_id'],
+      select: ["parent_id"],
     });
 
     while (current?.parent_id) {
       rootId = current.parent_id;
       current = await this.proposalRepository.findOne({
         where: { id: current.parent_id },
-        select: ['parent_id'],
+        select: ["parent_id"],
       });
     }
 
@@ -227,16 +265,23 @@ export class ProposalsService {
 
     // 2. Find proposal with highest version_number that has a non-null namespace
     const latestWithNamespace = await this.proposalRepository
-      .createQueryBuilder('proposal')
-      .select(['proposal.version_number', 'proposal.pinecone_namespace'])
-      .where('proposal.id = :rootId OR proposal.parent_id = :rootId', { rootId })
-      .orWhere('proposal.parent_id IN (SELECT id FROM proposals WHERE parent_id = :rootId)', { rootId })
-      .andWhere('proposal.pinecone_namespace IS NOT NULL')
-      .orderBy('proposal.version_number', 'DESC')
+      .createQueryBuilder("proposal")
+      .select(["proposal.version_number", "proposal.pinecone_namespace"])
+      .where("proposal.id = :rootId OR proposal.parent_id = :rootId", {
+        rootId,
+      })
+      .orWhere(
+        "proposal.parent_id IN (SELECT id FROM proposals WHERE parent_id = :rootId)",
+        { rootId }
+      )
+      .andWhere("proposal.pinecone_namespace IS NOT NULL")
+      .orderBy("proposal.version_number", "DESC")
       .getOne();
 
     if (latestWithNamespace?.pinecone_namespace) {
-      this.logger.log(`[NAMESPACE] Found latest namespace from version ${latestWithNamespace.version_number}: ${latestWithNamespace.pinecone_namespace}`);
+      this.logger.log(
+        `[NAMESPACE] Found latest namespace from version ${latestWithNamespace.version_number}: ${latestWithNamespace.pinecone_namespace}`
+      );
       return latestWithNamespace.pinecone_namespace;
     }
 
@@ -244,7 +289,10 @@ export class ProposalsService {
     return undefined;
   }
 
-  private async queueProposalJob(proposal: Proposal, dto: GenerateProposalDto): Promise<void> {
+  private async queueProposalJob(
+    proposal: Proposal,
+    dto: GenerateProposalDto
+  ): Promise<void> {
     const jobData: ProposalJobData = {
       id: proposal.id,
       subscription_id: proposal.subscription_id,
@@ -274,10 +322,10 @@ export class ProposalsService {
 
     this.logger.log(`[QUEUE] Adding job to proposal-generation queue...`);
 
-    const job = await this.proposalQueue.add('generate', jobData, {
+    const job = await this.proposalQueue.add("generate", jobData, {
       attempts: 3,
       backoff: {
-        type: 'exponential',
+        type: "exponential",
         delay: 1000,
       },
     });
@@ -298,7 +346,9 @@ export class ProposalsService {
     }
 
     this.logger.log(`[API] Proposal found - status: ${proposal.status}`);
-    this.logger.debug(`[API] Proposal data: ${JSON.stringify(proposal, null, 2)}`);
+    this.logger.debug(
+      `[API] Proposal data: ${JSON.stringify(proposal, null, 2)}`
+    );
 
     return proposal;
   }
@@ -307,7 +357,7 @@ export class ProposalsService {
     jobData: ProposalJobData,
     generalInfo: GeneralInfoOutput,
     scope: ScopeOutput,
-    timeline: TimelineOutput,
+    timeline: TimelineOutput
   ): Promise<void> {
     this.logger.log(`[SAVE] Updating proposal ${jobData.id} in PostgreSQL...`);
 
@@ -321,26 +371,35 @@ export class ProposalsService {
     const result = await this.proposalRepository.update(
       { id: jobData.id },
       {
-        status: 'approval_pending',
-        executive_summary: generalInfo['executive-summary'],
+        status: "approval_pending",
+        executive_summary: generalInfo["executive-summary"],
         objectives: generalInfo.objectives,
-        training_and_support: generalInfo['training-and-support'],
-        team_structure_min_experience: parseIntSafe(generalInfo['team-structure-min-experiance']),
-        team_structure_table: generalInfo['team-structure-table'],
-        scope_of_work_introduction: scope['scope-of-work-introduction'],
-        scope_of_work_summary: scope['scope-of-work-summary'],
-        scope_of_work: scope['scope-of-work'],
-        duration_business_days: parseIntSafe(timeline['duration-business-days']),
-        implementation_timeline_table: timeline['implementation-timeline-table'],
-      },
+        training_and_support: generalInfo["training-and-support"],
+        team_structure_min_experience: parseIntSafe(
+          generalInfo["team-structure-min-experiance"]
+        ),
+        team_structure_table: generalInfo["team-structure-table"],
+        scope_of_work_introduction: scope["scope-of-work-introduction"],
+        scope_of_work_summary: scope["scope-of-work-summary"],
+        scope_of_work: scope["scope-of-work"],
+        duration_business_days: parseIntSafe(
+          timeline["duration-business-days"]
+        ),
+        implementation_timeline_table:
+          timeline["implementation-timeline-table"],
+      }
     );
 
     if (result.affected === 0) {
-      this.logger.error(`[SAVE] FAILED - No proposal found with id ${jobData.id}`);
+      this.logger.error(
+        `[SAVE] FAILED - No proposal found with id ${jobData.id}`
+      );
       throw new Error(`Failed to save proposal: Proposal not found`);
     }
 
-    this.logger.log(`[SAVE] SUCCESS - Proposal ${jobData.id} updated with status: approval_pending`);
+    this.logger.log(
+      `[SAVE] SUCCESS - Proposal ${jobData.id} updated with status: approval_pending`
+    );
   }
 
   async renderProposal(proposalId: string): Promise<{ html: string }> {
@@ -352,15 +411,17 @@ export class ProposalsService {
 
     if (!proposal) {
       this.logger.error(`[RENDER] Proposal ${proposalId} not found`);
-      throw new Error('Proposal not found');
+      throw new Error("Proposal not found");
     }
 
     if (!proposal.template_id) {
       this.logger.error(`[RENDER] Proposal ${proposalId} has no template_id`);
-      throw new Error('Proposal has no template assigned');
+      throw new Error("Proposal has no template assigned");
     }
 
-    const template = await this.templatesService.fetchTemplate(proposal.template_id);
+    const template = await this.templatesService.fetchTemplate(
+      proposal.template_id
+    );
     this.logger.log(`[RENDER] Template fetched: ${template.name}`);
 
     // Map proposal data to template expected format (snake_case keys to match template)
@@ -368,15 +429,22 @@ export class ProposalsService {
       // Cover page
       project_name: proposal.title,
       client_name: proposal.client_name,
-      current_date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+      current_date: new Date().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      }),
 
       // About Us page
       executive_summary: proposal.executive_summary,
       objectives: proposal.objectives,
 
       // Our Team page
-      team_structure_min_experience: proposal.team_structure_min_experience?.toString(),
-      team_structure_table_rows: this.renderTeamTableRows(proposal.team_structure_table as any[]),
+      team_structure_min_experience:
+        proposal.team_structure_min_experience?.toString(),
+      team_structure_table_rows: this.renderTeamTableRows(
+        proposal.team_structure_table as any[]
+      ),
 
       // Our Services page
       training_and_support: proposal.training_and_support,
@@ -388,13 +456,18 @@ export class ProposalsService {
 
       // Pricing & Timeline page
       duration_business_days: proposal.duration_business_days?.toString(),
-      implementation_timeline_table_rows: this.renderTimelineTableRows(proposal.implementation_timeline_table as any[]),
+      implementation_timeline_table_rows: this.renderTimelineTableRows(
+        proposal.implementation_timeline_table as any[]
+      ),
 
       // Next Steps page
       status: proposal.status,
     };
 
-    const html = this.templatesService.renderTemplate(template.html, templateData);
+    const html = this.templatesService.renderTemplate(
+      template.html,
+      templateData
+    );
     this.logger.log(`[RENDER] Template rendered - ${html.length} characters`);
 
     return { html };
@@ -407,23 +480,29 @@ export class ProposalsService {
 
     const result = await this.proposalRepository.update(
       { id: proposalId },
-      { pinecone_namespace: namespace },
+      { pinecone_namespace: namespace }
     );
 
     if (result.affected === 0) {
-      this.logger.error(`[NAMESPACE] FAILED - No proposal found with id ${proposalId}`);
+      this.logger.error(
+        `[NAMESPACE] FAILED - No proposal found with id ${proposalId}`
+      );
     } else {
-      this.logger.log(`[NAMESPACE] SUCCESS - Namespace saved to pinecone_namespace column`);
+      this.logger.log(
+        `[NAMESPACE] SUCCESS - Namespace saved to pinecone_namespace column`
+      );
     }
   }
 
   async getProposalNamespace(proposalId: string): Promise<string | null> {
-    this.logger.log(`[NAMESPACE] Checking for existing namespace in database...`);
+    this.logger.log(
+      `[NAMESPACE] Checking for existing namespace in database...`
+    );
     this.logger.log(`[NAMESPACE] Proposal ID: ${proposalId}`);
 
     const proposal = await this.proposalRepository.findOne({
       where: { id: proposalId },
-      select: ['pinecone_namespace'],
+      select: ["pinecone_namespace"],
     });
 
     const namespace = proposal?.pinecone_namespace || null;
@@ -431,19 +510,24 @@ export class ProposalsService {
     if (namespace) {
       this.logger.log(`[NAMESPACE] FOUND existing namespace: ${namespace}`);
     } else {
-      this.logger.log(`[NAMESPACE] No namespace found - first attempt or not yet indexed`);
+      this.logger.log(
+        `[NAMESPACE] No namespace found - first attempt or not yet indexed`
+      );
     }
 
     return namespace;
   }
 
-  async markProposalFailed(proposalId: string, errorMessage: string): Promise<void> {
+  async markProposalFailed(
+    proposalId: string,
+    errorMessage: string
+  ): Promise<void> {
     this.logger.log(`[FAIL] Marking proposal ${proposalId} as failed...`);
     this.logger.log(`[FAIL] Error: ${errorMessage.substring(0, 200)}`);
 
     const result = await this.proposalRepository.update(
       { id: proposalId },
-      { status: 'failed' },
+      { status: "failed" }
     );
 
     if (result.affected === 0) {
@@ -451,6 +535,89 @@ export class ProposalsService {
     } else {
       this.logger.log(`[FAIL] Proposal ${proposalId} marked as failed`);
     }
+  }
+
+  async findAllByOrganization(
+    organizationId: string,
+    filters?: {
+      page?: number;
+      limit?: number;
+      status?: string;
+      search?: string;
+    }
+  ): Promise<{
+    proposals: Proposal[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      total_pages: number;
+    };
+  }> {
+    this.logger.log(
+      `[FIND] Finding proposals for organization: ${organizationId}`
+    );
+    this.logger.log(`[FIND] Filters: ${JSON.stringify(filters)}`);
+
+    const page = filters?.page || 1;
+    const limit = filters?.limit || 10;
+    const skip = (page - 1) * limit;
+
+    // Build query with join to subscriptions table
+    // Join: proposals -> subscriptions -> organizations (via organization_id)
+    const queryBuilder = this.proposalRepository
+      .createQueryBuilder("proposal")
+      .innerJoin(
+        "subscriptions",
+        "subscription",
+        "subscription.id = proposal.subscription_id"
+      )
+      .where("subscription.organization_id = :organizationId", {
+        organizationId,
+      })
+      .andWhere("proposal.is_deleted = :isDeleted", { isDeleted: false });
+
+    // Apply status filter
+    if (filters?.status) {
+      queryBuilder.andWhere("proposal.status = :status", {
+        status: filters.status,
+      });
+    }
+
+    // Apply search filter
+    if (filters?.search) {
+      const searchTerm = `%${filters.search}%`;
+      queryBuilder.andWhere(
+        "(proposal.title ILIKE :search OR proposal.client_name ILIKE :search)",
+        { search: searchTerm }
+      );
+    }
+
+    // Get total count
+    const total = await queryBuilder.getCount();
+
+    // Apply pagination and ordering
+    const proposals = await queryBuilder
+      .orderBy("proposal.created_at", "DESC")
+      .skip(skip)
+      .take(limit)
+      .getMany();
+
+    const total_pages = Math.ceil(total / limit);
+
+    this.logger.log(
+      `[FIND] Found ${proposals.length} proposals (total: ${total})`
+    );
+
+    return {
+      proposals,
+      meta: {
+        page,
+        limit,
+        total,
+        total_pages,
+      },
+    };
   }
 
   async count(): Promise<{ count: number }> {
@@ -463,26 +630,78 @@ export class ProposalsService {
     return { count };
   }
 
+  async softDeleteProposal(
+    proposalId: string,
+    organizationId: string
+  ): Promise<void> {
+    this.logger.log(
+      `[DELETE] Soft deleting proposal: ${proposalId} for organization: ${organizationId}`
+    );
+
+    // Find proposal and verify it belongs to the organization
+    const proposal = await this.proposalRepository
+      .createQueryBuilder("proposal")
+      .innerJoin(
+        "subscriptions",
+        "subscription",
+        "subscription.id = proposal.subscription_id"
+      )
+      .where("proposal.id = :proposalId", { proposalId })
+      .andWhere("subscription.organization_id = :organizationId", {
+        organizationId,
+      })
+      .andWhere("proposal.is_deleted = :isDeleted", { isDeleted: false })
+      .getOne();
+
+    if (!proposal) {
+      this.logger.warn(
+        `[DELETE] Proposal not found or already deleted: ${proposalId}`
+      );
+      throw new HttpException(
+        "Proposal not found or already deleted",
+        HttpStatus.NOT_FOUND
+      );
+    }
+
+    // Soft delete by setting is_deleted = true
+    proposal.is_deleted = true;
+    proposal.updated_at = new Date();
+
+    await this.proposalRepository.save(proposal);
+
+    this.logger.log(
+      `[DELETE] Proposal ${proposalId} soft deleted successfully`
+    );
+  }
+
   private renderTeamTableRows(table: any[]): string {
-    if (!table || table.length === 0) return '';
-    return table.map(row => `
+    if (!table || table.length === 0) return "";
+    return table
+      .map(
+        (row) => `
       <tr>
-        <td>${row.Designation || ''}</td>
-        <td>${row.Count || ''}</td>
-        <td>${row.Experience || ''}</td>
-        <td>${row['Key Responsibilities'] || ''}</td>
+        <td>${row.Designation || ""}</td>
+        <td>${row.Count || ""}</td>
+        <td>${row.Experience || ""}</td>
+        <td>${row["Key Responsibilities"] || ""}</td>
       </tr>
-    `).join('');
+    `
+      )
+      .join("");
   }
 
   private renderTimelineTableRows(table: any[]): string {
-    if (!table || table.length === 0) return '';
-    return table.map(row => `
+    if (!table || table.length === 0) return "";
+    return table
+      .map(
+        (row) => `
       <tr>
-        <td>${row.phase || ''}</td>
-        <td>${row.scope || ''}</td>
-        <td>${row.timeline || ''}</td>
+        <td>${row.phase || ""}</td>
+        <td>${row.scope || ""}</td>
+        <td>${row.timeline || ""}</td>
       </tr>
-    `).join('');
+    `
+      )
+      .join("");
   }
 }

@@ -45,18 +45,22 @@ export class AuthService {
 
     // 3. Fetch user permissions via role_permissions join
     const permissions = await this.getUserPermissions(user.role_id);
+    
+    // 4. Check if user has any admin permissions
+    const hasAdminAccess = await this.checkAdminAccess(user.role_id);
 
-    // 4. Build JWT payload
+    // 5. Build JWT payload
     const payload: JwtPayload = {
       user_id: user.id,
       organization_id: user.organization_id,
       permissions: permissions,
+      has_admin_access: hasAdminAccess,
     };
 
-    // 5. Generate and return token
+    // 6. Generate and return token
     const access_token = this.jwtService.sign(payload);
 
-    this.logger.log(`[LOGIN] Login successful for: ${dto.email}`);
+    this.logger.log(`[LOGIN] Login successful for: ${dto.email} (Admin access: ${hasAdminAccess})`);
 
     return { access_token };
   }
@@ -67,10 +71,36 @@ export class AuthService {
     }
 
     const rolePermissions = await this.rolePermissionRepository.find({
-      where: { role_id: roleId },
+      where: { role_id: roleId, is_active: true },
       relations: ['permission'],
     });
 
-    return rolePermissions.map((rp) => rp.permission.key);
+    const permissions = rolePermissions
+      .filter((rp) => rp.permission) // Ensure permission exists
+      .map((rp) => rp.permission.key);
+    
+    this.logger.log(`[PERMISSIONS] Fetched ${permissions.length} permissions for role ${roleId}: ${permissions.join(', ')}`);
+    
+    return permissions;
+  }
+
+  private async checkAdminAccess(roleId: string): Promise<boolean> {
+    if (!roleId) {
+      return false;
+    }
+
+    const rolePermissions = await this.rolePermissionRepository.find({
+      where: { role_id: roleId, is_active: true },
+      relations: ['permission'],
+    });
+
+    // Check if user has any permission with is_saas_admin = true
+    const hasAdminAccess = rolePermissions.some(
+      (rp) => rp.permission && rp.permission.is_saas_admin === true
+    );
+
+    this.logger.log(`[ADMIN_CHECK] Role ${roleId} has admin access: ${hasAdminAccess}`);
+    
+    return hasAdminAccess;
   }
 }
