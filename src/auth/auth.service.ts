@@ -43,13 +43,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // 3. Fetch user permissions via role_permissions join
-    const permissions = await this.getUserPermissions(user.role_id);
-    
-    // 4. Check if user has any admin permissions
-    const hasAdminAccess = await this.checkAdminAccess(user.role_id);
+    // 3. Fetch user permissions and admin access in a single query
+    const { permissions, hasAdminAccess } = await this.getUserPermissionsAndAdminAccess(user.role_id);
 
-    // 5. Build JWT payload
+    // 4. Build JWT payload
     const payload: JwtPayload = {
       user_id: user.id,
       organization_id: user.organization_id,
@@ -65,42 +62,33 @@ export class AuthService {
     return { access_token };
   }
 
-  private async getUserPermissions(roleId: string): Promise<string[]> {
+  private async getUserPermissionsAndAdminAccess(roleId: string): Promise<{ permissions: string[]; hasAdminAccess: boolean }> {
     if (!roleId) {
-      return [];
+      return { permissions: [], hasAdminAccess: false };
     }
 
+    // Single query to fetch all role permissions with their permission details
     const rolePermissions = await this.rolePermissionRepository.find({
       where: { role_id: roleId, is_active: true },
       relations: ['permission'],
     });
 
-    const permissions = rolePermissions
-      .filter((rp) => rp.permission) // Ensure permission exists
-      .map((rp) => rp.permission.key);
-    
+    // Extract permissions and check admin access from the same result set
+    const permissions: string[] = [];
+    let hasAdminAccess = false;
+
+    for (const rp of rolePermissions) {
+      if (rp.permission) {
+        permissions.push(rp.permission.key);
+        if (rp.permission.is_saas_admin === true) {
+          hasAdminAccess = true;
+        }
+      }
+    }
+
     this.logger.log(`[PERMISSIONS] Fetched ${permissions.length} permissions for role ${roleId}: ${permissions.join(', ')}`);
-    
-    return permissions;
-  }
-
-  private async checkAdminAccess(roleId: string): Promise<boolean> {
-    if (!roleId) {
-      return false;
-    }
-
-    const rolePermissions = await this.rolePermissionRepository.find({
-      where: { role_id: roleId, is_active: true },
-      relations: ['permission'],
-    });
-
-    // Check if user has any permission with is_saas_admin = true
-    const hasAdminAccess = rolePermissions.some(
-      (rp) => rp.permission && rp.permission.is_saas_admin === true
-    );
-
     this.logger.log(`[ADMIN_CHECK] Role ${roleId} has admin access: ${hasAdminAccess}`);
-    
-    return hasAdminAccess;
+
+    return { permissions, hasAdminAccess };
   }
 }

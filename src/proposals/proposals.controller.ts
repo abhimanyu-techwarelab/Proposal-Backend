@@ -23,6 +23,8 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { ProposalsService } from "./proposals.service";
 import { GenerateProposalDto } from "./dto/generate-proposal.dto";
+import { ApproveProposalDto } from "./dto/approve-proposal.dto";
+import { RejectProposalDto } from "./dto/reject-proposal.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import { RequirePermission } from "../auth/decorators/require-permission.decorator";
@@ -428,16 +430,39 @@ export class ProposalsController {
   })
   async deleteProposal(
     @Param("id") id: string,
-    @CurrentUser("organization_id") organizationId: string
+    @CurrentUser() user: JwtPayload
   ) {
     this.logger.log(
-      `[REQUEST] DELETE /product/proposals/${id} - organization_id: ${organizationId}`
+      `[REQUEST] DELETE /product/proposals/${id} - organization_id: ${user.organization_id}`
     );
 
     const startTime = Date.now();
 
     try {
-      await this.proposalsService.softDeleteProposal(id, organizationId);
+      // Get the proposal to check its status
+      const proposal = await this.proposalsService.findOneByOrganization(
+        id,
+        user.organization_id
+      );
+
+      if (!proposal) {
+        throw new HttpException("Proposal not found", HttpStatus.NOT_FOUND);
+      }
+
+      // If proposal is completed/approved, require approval permission
+      if (proposal.status === "completed") {
+        const hasApprovalPermission = user.permissions?.includes(
+          "approve_proposals_product"
+        );
+        if (!hasApprovalPermission) {
+          throw new HttpException(
+            "Cannot delete approved proposals without approval permission",
+            HttpStatus.FORBIDDEN
+          );
+        }
+      }
+
+      await this.proposalsService.softDeleteProposal(id, user.organization_id);
       this.logger.log(
         `[RESPONSE] 200 OK - proposal ${id} soft deleted - ${
           Date.now() - startTime
@@ -452,5 +477,163 @@ export class ProposalsController {
       this.logger.error(`[RESPONSE] Delete failed: ${error.message}`);
       throw error;
     }
+  }
+
+  @Post(":id/approve")
+  @RequirePermission("approve_proposals_product")
+  @ApiOperation({
+    summary: "Approve a proposal",
+    description:
+      "Approves a proposal that is in approval_pending status. Changes status to completed. Requires approve_proposals_product permission.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Proposal ID (UUID)",
+    type: String,
+    example: "123e4567-e89b-12d3-a456-426614174000",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Proposal approved successfully",
+    schema: {
+      type: "object",
+      properties: {
+        success: { type: "boolean", example: true },
+        message: { type: "string", example: "Proposal approved successfully" },
+        proposal: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            status: { type: "string", example: "completed" },
+            approved_by: { type: "string" },
+            approved_at: { type: "string", format: "date-time" },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: "Bad request - invalid status transition",
+  })
+  @ApiResponse({ status: 404, description: "Proposal not found" })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  @ApiResponse({
+    status: 403,
+    description: "Forbidden - insufficient permissions",
+  })
+  async approveProposal(
+    @Param("id") id: string,
+    @CurrentUser("organization_id") organizationId: string,
+    @CurrentUser("user_id") userId: string,
+    @Body() dto: ApproveProposalDto
+  ) {
+    this.logger.log(
+      `[REQUEST] POST /product/proposals/${id}/approve - user: ${userId}`
+    );
+
+    const startTime = Date.now();
+
+    const proposal = await this.proposalsService.approveProposal(
+      id,
+      organizationId,
+      userId,
+      dto.comments
+    );
+
+    this.logger.log(
+      `[RESPONSE] 200 OK - proposal ${id} approved - ${Date.now() - startTime}ms`
+    );
+
+    return {
+      success: true,
+      message: "Proposal approved successfully",
+      proposal: {
+        id: proposal.id,
+        status: proposal.status,
+        approved_by: proposal.approved_by,
+        approved_at: proposal.approved_at,
+      },
+    };
+  }
+
+  @Post(":id/reject")
+  @RequirePermission("approve_proposals_product")
+  @ApiOperation({
+    summary: "Reject a proposal",
+    description:
+      "Rejects a proposal that is in approval_pending status. Changes status to rejected. Requires approve_proposals_product permission.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Proposal ID (UUID)",
+    type: String,
+    example: "123e4567-e89b-12d3-a456-426614174000",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Proposal rejected successfully",
+    schema: {
+      type: "object",
+      properties: {
+        success: { type: "boolean", example: true },
+        message: { type: "string", example: "Proposal rejected successfully" },
+        proposal: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            status: { type: "string", example: "rejected" },
+            approved_by: { type: "string" },
+            approved_at: { type: "string", format: "date-time" },
+            rejection_reason: { type: "string" },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: "Bad request - invalid status transition or missing reason",
+  })
+  @ApiResponse({ status: 404, description: "Proposal not found" })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  @ApiResponse({
+    status: 403,
+    description: "Forbidden - insufficient permissions",
+  })
+  async rejectProposal(
+    @Param("id") id: string,
+    @CurrentUser("organization_id") organizationId: string,
+    @CurrentUser("user_id") userId: string,
+    @Body() dto: RejectProposalDto
+  ) {
+    this.logger.log(
+      `[REQUEST] POST /product/proposals/${id}/reject - user: ${userId}`
+    );
+
+    const startTime = Date.now();
+
+    const proposal = await this.proposalsService.rejectProposal(
+      id,
+      organizationId,
+      userId,
+      dto.reason
+    );
+
+    this.logger.log(
+      `[RESPONSE] 200 OK - proposal ${id} rejected - ${Date.now() - startTime}ms`
+    );
+
+    return {
+      success: true,
+      message: "Proposal rejected successfully",
+      proposal: {
+        id: proposal.id,
+        status: proposal.status,
+        approved_by: proposal.approved_by,
+        approved_at: proposal.approved_at,
+        rejection_reason: proposal.rejection_reason,
+      },
+    };
   }
 }

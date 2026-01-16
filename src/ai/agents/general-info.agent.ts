@@ -22,21 +22,50 @@ export class GeneralInfoAgent {
     const startTime = Date.now();
     this.logger.log(`[GENERAL-INFO] Starting agent for proposal: ${jobData.id}`);
 
-    const systemPrompt = `You are a professional proposal writer. Your task is to generate professional content for a business proposal based on the provided information. You must respond with valid JSON only, no markdown or additional text.
+    const systemPrompt = `You are a professional proposal writer. Your task is to generate a business proposal based ONLY on the provided context.
 
-Output the following JSON structure:
+OUTPUT RULES:
+- Respond with valid JSON only.
+- Do not wrap response in markdown code blocks.
+- Strictly escape all double quotes within string values using a backslash (e.g., \") to ensure valid JSON parsing.
+- Content fields should use markdown formatting (headers, bullets, bold) for rich display.
+
+QUALITY GUIDELINES:
+- Avoid fluff phrases (e.g., "cutting-edge", "world-class", "comprehensive solution").
+- Use specific, concrete language referencing the client's industry and goals.
+- Use quantifiable metrics (e.g., "5+ years" instead of "highly experienced").
+- If information is missing, provide a professional estimate based on project scope.
+
+JSON SCHEMA:
 {
-  "executive-summary": "A compelling executive summary paragraph",
-  "objectives": "Clear project objectives",
-  "training-and-support": "Training and support details",
-  "team-structure-min-experiance": "Minimum experience requirements for the team**ONLY NUMBER",
+  "executive-summary": "string (2-3 paragraphs with markdown, summarizing project value)",
+  "objectives": "string (markdown bulleted list)",
+  "training-and-support": "string (markdown formatted training plan)",
+  "team-structure-min-experiance": "string (number only, e.g. '3')",
   "team-structure-table": [
     {
-      "Designation": "Role title",
-      "Count": "Number of people",
-      "Key Responsibilities": "Main responsibilities",
-      "Experience": "Years of experience required"
+      "Designation": "string",
+      "Count": "string (e.g. '2')",
+      "Key Responsibilities": "string",
+      "Experience": "string (e.g. '5+ years')"
     }
+  ]
+}
+
+EXAMPLE:
+Input: {title: "E-Commerce Platform Modernization", client_name: "RetailMax Inc", industry: "Retail", goals: "Reduce page load times by 50%, increase mobile conversion", deliverables: ["React storefront", "Node.js API", "Stripe integration"], team_members: [{"role": "Tech Lead"}, {"role": "Frontend Developer"}]}
+
+Output:
+{
+  "executive-summary": "This proposal outlines our approach to modernizing **RetailMax Inc's** e-commerce platform, targeting a **50% reduction in page load times** and improved mobile conversion rates. We will deliver a React-based storefront backed by a Node.js API layer with Stripe payment integration.\n\nOur team brings deep experience in retail e-commerce transformations, having delivered similar projects that achieved 40%+ improvements in conversion rates. The proposed architecture follows industry best practices for headless commerce, ensuring RetailMax can scale efficiently during peak shopping seasons.",
+  "objectives": "- Reduce average page load time to under 2 seconds (50% improvement from current baseline)\n- Implement mobile-first responsive design targeting 25%+ increase in mobile conversions\n- Integrate Stripe payment gateway supporting credit cards, Apple Pay, and Google Pay\n- Deploy real-time analytics dashboard for sales and user behavior monitoring\n- Establish CI/CD pipeline for rapid, safe deployments",
+  "training-and-support": "## Knowledge Transfer Program\n\nOur engagement includes structured knowledge transfer:\n\n- **Developer Training (8 hours):** Hands-on sessions covering React component patterns and API integration\n- **Admin Training (4 hours):** Dashboard walkthrough for the operations team\n- **Documentation:** Complete technical docs including API specs, deployment runbooks, and troubleshooting guides\n\n## Post-Launch Support\n\n- 30-day support period with 4-hour response time for critical issues\n- Access to client portal for ticket submission and knowledge base",
+  "team-structure-min-experiance": "3",
+  "team-structure-table": [
+    {"Designation": "Technical Lead", "Count": "1", "Key Responsibilities": "Architecture design, code reviews, client communication, sprint planning", "Experience": "7+ years"},
+    {"Designation": "Senior Frontend Developer", "Count": "2", "Key Responsibilities": "React component development, performance optimization, unit testing", "Experience": "5+ years"},
+    {"Designation": "Backend Developer", "Count": "1", "Key Responsibilities": "Node.js API development, Stripe integration, database design", "Experience": "4+ years"},
+    {"Designation": "QA Engineer", "Count": "1", "Key Responsibilities": "Test automation, cross-browser testing, performance benchmarking", "Experience": "3+ years"}
   ]
 }`;
 

@@ -1,6 +1,7 @@
 import { Injectable, Logger, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from './entities/user.entity';
 import { Role } from '../roles/entities/role.entity';
@@ -16,6 +17,8 @@ export class UsersService {
     private userRepository: Repository<User>,
     @InjectRepository(Role)
     private roleRepository: Repository<Role>,
+    @InjectDataSource()
+    private dataSource: DataSource,
   ) {
     this.logger.log(`[INIT] UsersService initialized`);
   }
@@ -23,6 +26,7 @@ export class UsersService {
   async create(dto: CreateUserDto): Promise<User> {
     this.logger.log(`[CREATE] Creating user: ${dto.email}`);
 
+    // Check if email already exists
     const existingUser = await this.userRepository.findOne({
       where: { email: dto.email, is_deleted: false },
     });
@@ -31,25 +35,40 @@ export class UsersService {
       throw new ConflictException('Email already exists');
     }
 
-    // Hash the password before saving
-    const saltRounds = 10;
-    const password_hash = await bcrypt.hash(dto.password, saltRounds);
+    // Validate role exists if role_id is provided
+    if (dto.role_id) {
+      const role = await this.roleRepository.findOne({
+        where: { id: dto.role_id, is_deleted: false },
+      });
 
-    const user = this.userRepository.create({
-      email: dto.email,
-      password_hash,
-      first_name: dto.first_name,
-      last_name: dto.last_name,
-      organization_id: dto.organization_id,
+      if (!role) {
+        throw new BadRequestException(`Role with ID ${dto.role_id} not found`);
+      }
+    }
+
+    // Use transaction to ensure atomicity
+    return await this.dataSource.transaction(async (manager) => {
+      // Hash the password before saving
+      const saltRounds = 10;
+      const password_hash = await bcrypt.hash(dto.password, saltRounds);
+
+      const user = manager.create(User, {
+        email: dto.email,
+        password_hash,
+        first_name: dto.first_name,
+        last_name: dto.last_name,
+        organization_id: dto.organization_id,
+        role_id: dto.role_id,
+      });
+
+      const savedUser = await manager.save(User, user);
+
+      this.logger.log(`[CREATE] User created with ID: ${savedUser.id}`);
+
+      // Exclude password_hash from response
+      const { password_hash: _, ...userWithoutPassword } = savedUser;
+      return userWithoutPassword as User;
     });
-
-    const savedUser = await this.userRepository.save(user);
-
-    this.logger.log(`[CREATE] User created with ID: ${savedUser.id}`);
-
-    // Exclude password_hash from response
-    const { password_hash: _, ...userWithoutPassword } = savedUser;
-    return userWithoutPassword as User;
   }
 
   async findAll(

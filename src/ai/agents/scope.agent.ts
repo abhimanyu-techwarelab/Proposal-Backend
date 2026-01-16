@@ -55,14 +55,38 @@ export class ScopeAgent {
       this.logger.log(`[SCOPE] Skipping KB queries - no namespace`);
     }
 
-    const systemPrompt = `You are a professional proposal writer specializing in scope of work documentation. Your task is to generate a comprehensive scope of work section based on the provided information. You must respond with valid JSON only, no markdown or additional text.
+    const systemPrompt = `You are a professional proposal writer specializing in scope of work documentation. Your task is to generate a comprehensive scope of work section based ONLY on the provided context.
 
-Output the following JSON structure:
+OUTPUT RULES:
+- Respond with valid JSON only.
+- Do not wrap response in markdown code blocks.
+- Strictly escape all double quotes within string values using a backslash (e.g., \") to ensure valid JSON parsing.
+- Content fields should use markdown formatting (headers, bullets, bold) for rich display.
+
+QUALITY GUIDELINES:
+- Avoid fluff phrases (e.g., "cutting-edge", "robust", "seamless integration").
+- Be specific about what will and won't be included in scope.
+- Reference actual deliverables, technologies, and client requirements.
+- Use the knowledge base context to inform technical details when available.
+- If information is missing, provide a professional estimate based on project scope.
+
+JSON SCHEMA:
 {
-  "scope-of-work-introduction": "An introduction paragraph for the scope of work",
-  "scope-of-work-summary": "A summary of the scope of work",
-  "scope-of-work": "Detailed scope of work in markdown format with headers and bullet points",
-  "scope-of-work-main-points": "Key main points of the scope, comma-separated"
+  "scope-of-work-introduction": "string (1-2 paragraphs introducing the engagement)",
+  "scope-of-work-summary": "string (brief markdown summary of key deliverables)",
+  "scope-of-work": "string (detailed markdown with ## headers, bullets, and specifics)",
+  "scope-of-work-main-points": "string (comma-separated key points for timeline agent)"
+}
+
+EXAMPLE:
+Input: {title: "E-Commerce Platform Modernization", client_name: "RetailMax Inc", industry: "Retail", scope: "Frontend rebuild, API development, payment integration", deliverables: ["React storefront", "Node.js API", "Stripe integration", "Admin dashboard"]}
+
+Output:
+{
+  "scope-of-work-introduction": "This engagement covers the end-to-end modernization of **RetailMax Inc's** e-commerce platform, replacing the legacy monolithic architecture with a modern headless commerce solution. Our team will deliver a production-ready platform that addresses current performance bottlenecks while establishing a foundation for future growth.",
+  "scope-of-work-summary": "**Key Deliverables:** React-based storefront, Node.js API layer, Stripe payment integration, and admin dashboard.\n\n**Approach:** Phased delivery with milestone-based releases ensuring continuous validation.",
+  "scope-of-work": "## Frontend Development\n\n- **React Storefront:** Server-side rendered React application with Next.js\n- **Product Catalog:** Category navigation, search with filters, product detail pages\n- **Shopping Cart:** Persistent cart, quantity management, saved items\n- **Checkout Flow:** Multi-step checkout with address validation and order confirmation\n- **Responsive Design:** Mobile-first approach supporting iOS, Android, and desktop browsers\n\n## Backend API Development\n\n- **Node.js API Layer:** RESTful API built with Express.js/NestJS\n- **Product Service:** Inventory management, pricing, product variants\n- **Order Service:** Order processing, status tracking, email notifications\n- **User Service:** Authentication, profile management, order history\n\n## Payment Integration\n\n- **Stripe Integration:** Credit/debit cards, Apple Pay, Google Pay\n- **Payment Security:** PCI-compliant implementation, tokenization\n- **Refund Handling:** Partial and full refund processing\n\n## Admin Dashboard\n\n- **Order Management:** View, filter, and process orders\n- **Inventory Updates:** Stock level management and alerts\n- **Sales Analytics:** Revenue reports, conversion metrics\n\n## Out of Scope\n\n- Legacy data migration (separate engagement)\n- Mobile native apps (iOS/Android)\n- Third-party marketplace integrations",
+  "scope-of-work-main-points": "React storefront development, Node.js API layer, Stripe payment integration, Admin dashboard, Responsive design implementation, User authentication system"
 }`;
 
     const userPrompt = `Generate a comprehensive scope of work based on the following information:

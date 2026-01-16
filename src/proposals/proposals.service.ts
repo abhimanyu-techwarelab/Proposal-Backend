@@ -3,6 +3,8 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
+import { marked } from "marked";
+import Handlebars from "handlebars";
 import { GenerateProposalDto } from "./dto/generate-proposal.dto";
 import {
   Proposal,
@@ -353,6 +355,27 @@ export class ProposalsService {
     return proposal;
   }
 
+  async findOneByOrganization(
+    proposalId: string,
+    organizationId: string
+  ): Promise<Proposal | null> {
+    const proposal = await this.proposalRepository
+      .createQueryBuilder("proposal")
+      .innerJoin(
+        "subscriptions",
+        "subscription",
+        "subscription.id = proposal.subscription_id"
+      )
+      .where("proposal.id = :proposalId", { proposalId })
+      .andWhere("subscription.organization_id = :organizationId", {
+        organizationId,
+      })
+      .andWhere("proposal.is_deleted = :isDeleted", { isDeleted: false })
+      .getOne();
+
+    return proposal;
+  }
+
   async saveProposal(
     jobData: ProposalJobData,
     generalInfo: GeneralInfoOutput,
@@ -425,19 +448,23 @@ export class ProposalsService {
     this.logger.log(`[RENDER] Template fetched: ${template.name}`);
 
     // Map proposal data to template expected format (snake_case keys to match template)
+    // Convert markdown syntax (###, **, -, etc.) to HTML for text fields
     const templateData: Record<string, any> = {
       // Cover page
       project_name: proposal.title,
       client_name: proposal.client_name,
-      current_date: new Date().toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      }),
+      date_of_proposal: proposal.date_of_proposal
+        ? new Date(proposal.date_of_proposal).toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })
+        : "",
+      submitted_to: proposal.submitted_to,
 
-      // About Us page
-      executive_summary: proposal.executive_summary,
-      objectives: proposal.objectives,
+      // About Us page - convert markdown to HTML
+      executive_summary: this.convertMarkdownToHtml(proposal.executive_summary),
+      objectives: this.convertMarkdownToHtml(proposal.objectives),
 
       // Our Team page
       team_structure_min_experience:
@@ -446,13 +473,13 @@ export class ProposalsService {
         proposal.team_structure_table as any[]
       ),
 
-      // Our Services page
-      training_and_support: proposal.training_and_support,
+      // Our Services page - convert markdown to HTML
+      training_and_support: this.convertMarkdownToHtml(proposal.training_and_support),
 
-      // Scope of Work page
-      scope_of_work_introduction: proposal.scope_of_work_introduction,
-      scope_of_work_summary: proposal.scope_of_work_summary,
-      scope_of_work: proposal.scope_of_work,
+      // Scope of Work page - convert markdown to HTML
+      scope_of_work_introduction: this.convertMarkdownToHtml(proposal.scope_of_work_introduction),
+      scope_of_work_summary: this.convertMarkdownToHtml(proposal.scope_of_work_summary),
+      scope_of_work: this.convertMarkdownToHtml(proposal.scope_of_work),
 
       // Pricing & Timeline page
       duration_business_days: proposal.duration_business_days?.toString(),
@@ -464,10 +491,103 @@ export class ProposalsService {
       status: proposal.status,
     };
 
-    const html = this.templatesService.renderTemplate(
+    let html = this.templatesService.renderTemplate(
       template.html,
       templateData
     );
+
+    // Inject CSS for styling markdown content inside placeholders
+    const markdownStyles = `
+    <style>
+      /* Style for placeholder containers with markdown content (p and div with nested HTML) */
+      p.placeholder:has(p, ul, ol, h1, h2, h3, h4, h5, h6),
+      div.placeholder:has(p, ul, ol, h1, h2, h3, h4, h5, h6) {
+        background: transparent !important;
+        color: inherit !important;
+        white-space: normal !important;
+      }
+
+      /* Fallback for browsers that don't support :has() */
+      p.placeholder > p:first-child,
+      p.placeholder > ul:first-child,
+      p.placeholder > ol:first-child,
+      div.placeholder > p:first-child,
+      div.placeholder > ul:first-child,
+      div.placeholder > h2:first-child {
+        margin-top: 0;
+      }
+
+      /* Style headings ONLY inside .placeholder (markdown converted content) */
+      .placeholder h1 {
+        font-size: 1.5em;
+        font-weight: bold;
+        color: var(--primary-color, #2c3e50);
+        margin-top: 1em;
+        margin-bottom: 0.5em;
+        border-bottom: 2px solid var(--accent-color, #3498db);
+        padding-bottom: 0.3em;
+      }
+
+      .placeholder h2 {
+        font-size: 1.3em;
+        font-weight: bold;
+        color: var(--primary-color, #2c3e50);
+        margin-top: 1em;
+        margin-bottom: 0.5em;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 0.2em;
+      }
+
+      .placeholder h3 {
+        font-size: 1.1em;
+        font-weight: bold;
+        color: var(--primary-color, #2c3e50);
+        margin-top: 0.8em;
+        margin-bottom: 0.4em;
+      }
+
+      .placeholder h4,
+      .placeholder h5,
+      .placeholder h6 {
+        font-size: 1em;
+        font-weight: bold;
+        color: var(--primary-color, #2c3e50);
+        margin-top: 0.5em;
+        margin-bottom: 0.3em;
+      }
+
+      /* Ensure content sections can flow */
+      .placeholder p {
+        margin-top: 0.5em;
+        margin-bottom: 0.5em;
+        line-height: 1.6;
+      }
+
+      .placeholder ul,
+      .placeholder ol {
+        margin-top: 0.5em;
+        margin-bottom: 0.5em;
+        padding-left: 1.5em;
+      }
+
+      .placeholder li {
+        margin-bottom: 0.3em;
+        line-height: 1.5;
+      }
+
+      .placeholder strong {
+        font-weight: bold;
+      }
+
+      .placeholder em {
+        font-style: italic;
+      }
+    </style>
+    `;
+
+    // Inject the markdown styles before </head>
+    html = html.replace('</head>', `${markdownStyles}</head>`);
+
     this.logger.log(`[RENDER] Template rendered - ${html.length} characters`);
 
     return { html };
@@ -703,5 +823,127 @@ export class ProposalsService {
     `
       )
       .join("");
+  }
+
+  private convertMarkdownToHtml(text: string | undefined | null): Handlebars.SafeString {
+    if (!text) return new Handlebars.SafeString("");
+    const html = marked.parse(text) as string;
+    return new Handlebars.SafeString(html);
+  }
+
+  async approveProposal(
+    proposalId: string,
+    organizationId: string,
+    userId: string,
+    comments?: string
+  ): Promise<Proposal> {
+    this.logger.log(
+      `[APPROVE] Approving proposal: ${proposalId} by user: ${userId}`
+    );
+
+    // Find proposal and verify it belongs to the organization
+    const proposal = await this.proposalRepository
+      .createQueryBuilder("proposal")
+      .innerJoin(
+        "subscriptions",
+        "subscription",
+        "subscription.id = proposal.subscription_id"
+      )
+      .where("proposal.id = :proposalId", { proposalId })
+      .andWhere("subscription.organization_id = :organizationId", {
+        organizationId,
+      })
+      .andWhere("proposal.is_deleted = :isDeleted", { isDeleted: false })
+      .getOne();
+
+    if (!proposal) {
+      this.logger.warn(`[APPROVE] Proposal not found: ${proposalId}`);
+      throw new HttpException("Proposal not found", HttpStatus.NOT_FOUND);
+    }
+
+    // Validate status transition
+    if (proposal.status !== "approval_pending") {
+      this.logger.warn(
+        `[APPROVE] Invalid status transition from ${proposal.status} to completed`
+      );
+      throw new HttpException(
+        `Cannot approve proposal with status: ${proposal.status}. Only proposals with status 'approval_pending' can be approved.`,
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    // Update proposal status to completed (approved)
+    proposal.status = "completed";
+    proposal.approved_by = userId;
+    proposal.approved_at = new Date();
+    proposal.approval_comments = comments || undefined;
+    proposal.updated_by = userId;
+    proposal.updated_at = new Date();
+
+    const updatedProposal = await this.proposalRepository.save(proposal);
+
+    this.logger.log(
+      `[APPROVE] Proposal ${proposalId} approved successfully by ${userId}`
+    );
+
+    return updatedProposal;
+  }
+
+  async rejectProposal(
+    proposalId: string,
+    organizationId: string,
+    userId: string,
+    reason: string
+  ): Promise<Proposal> {
+    this.logger.log(
+      `[REJECT] Rejecting proposal: ${proposalId} by user: ${userId}`
+    );
+
+    // Find proposal and verify it belongs to the organization
+    const proposal = await this.proposalRepository
+      .createQueryBuilder("proposal")
+      .innerJoin(
+        "subscriptions",
+        "subscription",
+        "subscription.id = proposal.subscription_id"
+      )
+      .where("proposal.id = :proposalId", { proposalId })
+      .andWhere("subscription.organization_id = :organizationId", {
+        organizationId,
+      })
+      .andWhere("proposal.is_deleted = :isDeleted", { isDeleted: false })
+      .getOne();
+
+    if (!proposal) {
+      this.logger.warn(`[REJECT] Proposal not found: ${proposalId}`);
+      throw new HttpException("Proposal not found", HttpStatus.NOT_FOUND);
+    }
+
+    // Validate status transition
+    if (proposal.status !== "approval_pending") {
+      this.logger.warn(
+        `[REJECT] Invalid status transition from ${proposal.status} to rejected`
+      );
+      throw new HttpException(
+        `Cannot reject proposal with status: ${proposal.status}. Only proposals with status 'approval_pending' can be rejected.`,
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    // Update proposal status to rejected
+    proposal.status = "rejected";
+    proposal.approved_by = userId;
+    proposal.approved_at = new Date();
+    proposal.rejection_reason = reason;
+    proposal.updated_by = userId;
+    proposal.updated_at = new Date();
+
+    const updatedProposal = await this.proposalRepository.save(proposal);
+
+    this.logger.log(
+      `[REJECT] Proposal ${proposalId} rejected by ${userId}. Reason: ${reason}`
+    );
+
+    return updatedProposal;
   }
 }

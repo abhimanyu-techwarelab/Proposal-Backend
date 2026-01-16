@@ -19,6 +19,8 @@ import { TagsModule } from "./tags/tags.module";
 import { SeedModule } from "./seed/seed.module";
 import { FeaturesModule } from "./features/features.module";
 import { PlansModule } from "./plans/plans.module";
+import { SubscriptionsModule } from "./subscriptions/subscriptions.module";
+import { DashboardModule } from "./dashboard/dashboard.module";
 import { Proposal } from "./proposals/entities/proposal.entity";
 import { Template } from "./templates/entities/template.entity";
 import { Organization } from "./organizations/entities/organization.entity";
@@ -31,6 +33,7 @@ import { TemplateTag } from "./templates/entities/template-tag.entity";
 import { Feature } from "./features/entities/feature.entity";
 import { Plan } from "./plans/entities/plan.entity";
 import { PlanFeature } from "./plans/entities/plan-feature.entity";
+import { Subscription } from "./subscriptions/entities/subscription.entity";
 
 @Module({
   imports: [
@@ -60,6 +63,7 @@ import { PlanFeature } from "./plans/entities/plan-feature.entity";
           Feature,
           Plan,
           PlanFeature,
+          Subscription,
         ],
         synchronize: false,
         ssl:
@@ -100,6 +104,8 @@ import { PlanFeature } from "./plans/entities/plan-feature.entity";
     SeedModule,
     FeaturesModule,
     PlansModule,
+    SubscriptionsModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}

@@ -141,6 +141,18 @@ export class Proposal {
 
   @Column({ type: 'uuid', nullable: true })
   updated_by: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  approved_by?: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  approved_at?: Date;
+
+  @Column({ type: 'text', nullable: true })
+  rejection_reason?: string;
+
+  @Column({ type: 'text', nullable: true })
+  approval_comments?: string;
 }
 
 export interface ProposalJobData {

@@ -29,7 +29,7 @@ export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}
 
   @Get()
-  @RequirePermission("read_template")
+  @RequirePermission("read_template", "create_proposals_product")
   async findAll(@Query("page") page?: string, @Query("limit") limit?: string) {
     this.logger.log(
       `[REQUEST] GET /templates - page: ${page}, limit: ${limit}`
@@ -79,7 +79,7 @@ export class TemplatesController {
   }
 
   @Get(":id")
-  @RequirePermission("read_template")
+  @RequirePermission("read_template", "create_proposals_product")
   async findOne(@Param("id", ParseUUIDPipe) id: string) {
     this.logger.log(`[REQUEST] GET /templates/${id}`);
 

@@ -32,10 +32,10 @@ export class UsersController {
 
   @Post("create")
   @UseGuards(PermissionsGuard)
-  @RequirePermission("create_user", "read_user")
+  @RequirePermission("create_user", "create_users_product")
   @ApiOperation({
     summary: 'Create a new user',
-    description: 'Creates a new user account. Requires create_user or read_user permission.',
+    description: 'Creates a new user account. Requires create_user (Admin Panel) or create_users_product (Product App) permission.',
   })
   @ApiResponse({
     status: 201,
@@ -70,10 +70,10 @@ export class UsersController {
 
   @Get()
   @UseGuards(PermissionsGuard)
-  @RequirePermission("read_users_product")
+  @RequirePermission("read_user", "read_users_product")
   @ApiOperation({
     summary: 'Get all users',
-    description: 'Retrieves a list of users for the authenticated user\'s organization. Supports pagination. Requires read_users_product permission.',
+    description: 'Retrieves a list of users for the authenticated user\'s organization. Supports pagination. Requires read_user (Admin Panel) OR read_users_product (Product App) permission.',
   })
   @ApiQuery({
     name: 'page',
@@ -246,10 +246,10 @@ export class UsersController {
 
   @Put("update/:id")
   @UseGuards(PermissionsGuard)
-  @RequirePermission("update_user", "read_user")
+  @RequirePermission("update_user", "update_users_product")
   @ApiOperation({
     summary: 'Update user',
-    description: 'Updates an existing user. Only provided fields will be updated. Requires update_user or read_user permission.',
+    description: 'Updates an existing user. Only provided fields will be updated. Requires update_user (Admin Panel) or update_users_product (Product App) permission.',
   })
   @ApiParam({
     name: 'id',
