@@ -15,6 +15,13 @@ import {
 } from "./entities/proposal.entity";
 import { TemplatesService } from "../templates/templates.service";
 import { DataTransformService } from "../common/data-transform.service";
+import { StorageService } from "../storage/storage.service";
+import { KnowledgeBaseService } from "../knowledge-base/knowledge-base.service";
+import { AIService } from "../ai/ai.service";
+import {
+  ExtractedFields,
+  ExtractFieldsResponse,
+} from "./interfaces/extracted-fields.interface";
 
 @Injectable()
 export class ProposalsService {
@@ -25,7 +32,10 @@ export class ProposalsService {
     private proposalRepository: Repository<Proposal>,
     @InjectQueue("proposal-generation") private proposalQueue: Queue,
     private templatesService: TemplatesService,
-    private dataTransformService: DataTransformService
+    private dataTransformService: DataTransformService,
+    private storageService: StorageService,
+    private knowledgeBaseService: KnowledgeBaseService,
+    private aiService: AIService
   ) {
     this.logger.log(`[INIT] ProposalsService initialized with TypeORM`);
   }
@@ -945,5 +955,130 @@ export class ProposalsService {
     );
 
     return updatedProposal;
+  }
+
+  async extractFieldsFromUploads(
+    documentUrls: string[],
+    audioUrls: string[] = []
+  ): Promise<ExtractFieldsResponse> {
+    const totalStartTime = Date.now();
+    this.logger.log(`[EXTRACT] Starting field extraction`);
+    this.logger.log(
+      `[EXTRACT] Documents: ${documentUrls.length}, Audio: ${audioUrls.length}`
+    );
+
+    let combinedDocumentText = "";
+    let combinedAudioText = "";
+
+    // Process documents
+    for (const url of documentUrls) {
+      try {
+        const docStartTime = Date.now();
+        this.logger.log(
+          `[EXTRACT] Downloading document: ${url.substring(0, 80)}...`
+        );
+        const buffer = await this.storageService.downloadDocument(url);
+        this.logger.log(`[EXTRACT] Download took ${Date.now() - docStartTime}ms`);
+
+        // Determine MIME type from URL
+        const parseStartTime = Date.now();
+        const mimeType = this.getMimeTypeFromUrl(url);
+        const text = await this.knowledgeBaseService.parseDocument(
+          buffer,
+          mimeType
+        );
+        this.logger.log(`[EXTRACT] Parse took ${Date.now() - parseStartTime}ms`);
+
+        combinedDocumentText += text + "\n\n";
+        this.logger.log(`[EXTRACT] Parsed document: ${text.length} chars`);
+      } catch (error: any) {
+        this.logger.warn(
+          `[EXTRACT] Failed to process document: ${error.message}`
+        );
+      }
+    }
+
+    // Process audio files
+    for (const url of audioUrls) {
+      try {
+        const audioStartTime = Date.now();
+        this.logger.log(
+          `[EXTRACT] Downloading audio: ${url.substring(0, 80)}...`
+        );
+        const buffer = await this.storageService.downloadAudio(url);
+        this.logger.log(`[EXTRACT] Audio download took ${Date.now() - audioStartTime}ms`);
+
+        const transcribeStartTime = Date.now();
+        const transcription = await this.aiService.transcribeAudio(buffer);
+        this.logger.log(`[EXTRACT] Transcription took ${Date.now() - transcribeStartTime}ms`);
+
+        combinedAudioText += transcription + "\n\n";
+        this.logger.log(
+          `[EXTRACT] Transcribed audio: ${transcription.length} chars`
+        );
+      } catch (error: any) {
+        this.logger.warn(`[EXTRACT] Failed to process audio: ${error.message}`);
+      }
+    }
+
+    // Truncate content if too long (100KB max for GPT processing)
+    const MAX_CONTENT_LENGTH = 100000;
+    if (combinedDocumentText.length > MAX_CONTENT_LENGTH) {
+      combinedDocumentText = combinedDocumentText.substring(
+        0,
+        MAX_CONTENT_LENGTH
+      );
+      this.logger.warn(
+        `[EXTRACT] Document content truncated to ${MAX_CONTENT_LENGTH} chars`
+      );
+    }
+
+    // Extract fields using AI
+    const aiStartTime = Date.now();
+    this.logger.log(`[EXTRACT] Calling AI extraction with ${combinedDocumentText.length} doc chars, ${combinedAudioText.length} audio chars`);
+    const fields = await this.aiService.extractFieldsFromContent(
+      combinedDocumentText,
+      combinedAudioText
+    );
+    this.logger.log(`[EXTRACT] AI extraction took ${Date.now() - aiStartTime}ms`);
+
+    // Determine confidence based on content quality
+    const confidence = this.calculateExtractionConfidence(
+      combinedDocumentText.length,
+      combinedAudioText.length,
+      Object.keys(fields).length
+    );
+
+    this.logger.log(`[EXTRACT] Total extraction time: ${Date.now() - totalStartTime}ms`);
+
+    return {
+      success: true,
+      fields,
+      sources: {
+        documents: documentUrls.length,
+        audio: audioUrls.length,
+      },
+      confidence,
+    };
+  }
+
+  private getMimeTypeFromUrl(url: string): string {
+    const lower = url.toLowerCase();
+    if (lower.includes(".pdf")) return "application/pdf";
+    if (lower.includes(".docx"))
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    if (lower.includes(".doc")) return "application/msword";
+    return "application/octet-stream";
+  }
+
+  private calculateExtractionConfidence(
+    docLength: number,
+    audioLength: number,
+    fieldsExtracted: number
+  ): "high" | "medium" | "low" {
+    const totalContent = docLength + audioLength;
+    if (totalContent > 5000 && fieldsExtracted >= 8) return "high";
+    if (totalContent > 1000 && fieldsExtracted >= 4) return "medium";
+    return "low";
   }
 }

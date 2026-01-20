@@ -4,8 +4,10 @@ import OpenAI from 'openai';
 import { GeneralInfoAgent } from './agents/general-info.agent';
 import { ScopeAgent } from './agents/scope.agent';
 import { TimelineAgent } from './agents/timeline.agent';
+import { FieldExtractionAgent } from './agents/field-extraction.agent';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { ProposalJobData } from '../proposals/entities/proposal.entity';
+import { ExtractedFields } from '../proposals/interfaces/extracted-fields.interface';
 
 @Injectable()
 export class AIService {
@@ -14,6 +16,7 @@ export class AIService {
   private generalInfoAgent: GeneralInfoAgent;
   private scopeAgent: ScopeAgent;
   private timelineAgent: TimelineAgent;
+  private fieldExtractionAgent: FieldExtractionAgent;
 
   constructor(
     private configService: ConfigService,
@@ -26,6 +29,7 @@ export class AIService {
     this.generalInfoAgent = new GeneralInfoAgent(this.openai);
     this.scopeAgent = new ScopeAgent(this.openai, this.knowledgeBaseService);
     this.timelineAgent = new TimelineAgent(this.openai);
+    this.fieldExtractionAgent = new FieldExtractionAgent(this.openai);
   }
 
   async transcribeAudio(audioBuffer: Buffer): Promise<string> {
@@ -89,5 +93,13 @@ export class AIService {
   }> {
     this.logger.log(`Executing Timeline Agent for proposal: ${jobData.id}`);
     return this.timelineAgent.execute(jobData, scopeMainPoints);
+  }
+
+  async extractFieldsFromContent(
+    documentText: string,
+    audioTranscription?: string,
+  ): Promise<ExtractedFields> {
+    this.logger.log(`[EXTRACT] Extracting fields from content`);
+    return this.fieldExtractionAgent.extract(documentText, audioTranscription);
   }
 }

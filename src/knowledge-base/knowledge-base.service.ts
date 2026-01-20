@@ -218,7 +218,7 @@ export class KnowledgeBaseService {
 
   // === PRIVATE HELPER METHODS ===
 
-  private async parseDocument(buffer: Buffer, mimeType: string): Promise<string> {
+  async parseDocument(buffer: Buffer, mimeType: string): Promise<string> {
     this.logger.debug(`[PARSE] Parsing document with MIME type: ${mimeType}`);
 
     try {

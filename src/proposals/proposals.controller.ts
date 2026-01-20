@@ -25,6 +25,7 @@ import { ProposalsService } from "./proposals.service";
 import { GenerateProposalDto } from "./dto/generate-proposal.dto";
 import { ApproveProposalDto } from "./dto/approve-proposal.dto";
 import { RejectProposalDto } from "./dto/reject-proposal.dto";
+import { ExtractFieldsDto } from "./dto/extract-fields.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import { RequirePermission } from "../auth/decorators/require-permission.decorator";
@@ -79,6 +80,83 @@ export class ProposalsController {
     this.logger.log(
       `[RESPONSE] 200 OK - id: ${result.id} - ${Date.now() - startTime}ms`
     );
+    return result;
+  }
+
+  @Post("extract-fields")
+  @ApiOperation({
+    summary: "Extract form fields from uploaded documents and audio",
+    description:
+      "Parses uploaded documents (PDF, DOCX) and transcribes audio files to extract proposal form fields using AI. Returns extracted data that can be used to auto-populate the form.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Fields extracted successfully",
+    schema: {
+      type: "object",
+      properties: {
+        success: { type: "boolean", example: true },
+        fields: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            clientName: { type: "string" },
+            clientEmail: { type: "string" },
+            industry: { type: "string" },
+            summary: { type: "string" },
+            goals: { type: "string" },
+            scope: { type: "string" },
+            startDate: { type: "string" },
+            endDate: { type: "string" },
+            totalBudget: { type: "number" },
+            currency: { type: "string" },
+            billingType: { type: "string" },
+            deliverables: { type: "array", items: { type: "string" } },
+            milestones: { type: "array" },
+            teamMembers: { type: "array" },
+            links: { type: "array", items: { type: "string" } },
+            recipients: { type: "array" },
+          },
+        },
+        sources: {
+          type: "object",
+          properties: {
+            documents: { type: "number" },
+            audio: { type: "number" },
+          },
+        },
+        confidence: { type: "string", enum: ["high", "medium", "low"] },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: "Bad request - no files provided" })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  async extractFields(@Body() dto: ExtractFieldsDto) {
+    this.logger.log(`[REQUEST] POST /product/proposals/extract-fields`);
+    this.logger.log(
+      `[REQUEST] Documents: ${dto.document_urls?.length || 0}, Audio: ${dto.audio_urls?.length || 0}`
+    );
+
+    if (
+      (!dto.document_urls || dto.document_urls.length === 0) &&
+      (!dto.audio_urls || dto.audio_urls.length === 0)
+    ) {
+      throw new HttpException(
+        "At least one document or audio URL is required",
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    const startTime = Date.now();
+    const result = await this.proposalsService.extractFieldsFromUploads(
+      dto.document_urls || [],
+      dto.audio_urls || []
+    );
+
+    this.logger.log(
+      `[RESPONSE] 200 OK - extracted ${Object.keys(result.fields).length} fields - ${Date.now() - startTime}ms`
+    );
+
     return result;
   }
 
@@ -349,7 +427,7 @@ export class ProposalsController {
     }
   }
 
-  @Get(":id")
+  @Get(":id/status")
   @ApiOperation({
     summary: "Get proposal status",
     description:
@@ -376,8 +454,8 @@ export class ProposalsController {
     },
   })
   @ApiResponse({ status: 404, description: "Proposal not found" })
-  async getProposalResult(@Param("id") id: string) {
-    this.logger.log(`[REQUEST] GET /product/proposals/${id}`);
+  async getProposalStatus(@Param("id") id: string) {
+    this.logger.log(`[REQUEST] GET /product/proposals/${id}/status`);
 
     const startTime = Date.now();
     const result = await this.proposalsService.getProposalResult(id);
@@ -396,6 +474,55 @@ export class ProposalsController {
     return {
       status: result.status,
     };
+  }
+
+  @Get(":id")
+  @RequirePermission("read_proposals_product")
+  @ApiOperation({
+    summary: "Get proposal details",
+    description:
+      "Retrieves the complete proposal data including all fields. Requires read_proposals_product permission.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Proposal ID (UUID)",
+    type: String,
+    example: "123e4567-e89b-12d3-a456-426614174000",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Proposal retrieved successfully",
+  })
+  @ApiResponse({ status: 404, description: "Proposal not found" })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  @ApiResponse({
+    status: 403,
+    description: "Forbidden - insufficient permissions",
+  })
+  async getProposalDetails(
+    @Param("id") id: string,
+    @CurrentUser("organization_id") organizationId: string
+  ) {
+    this.logger.log(
+      `[REQUEST] GET /product/proposals/${id} - organization_id: ${organizationId}`
+    );
+
+    const startTime = Date.now();
+    const proposal = await this.proposalsService.findOneByOrganization(
+      id,
+      organizationId
+    );
+
+    if (!proposal) {
+      this.logger.warn(`[RESPONSE] 404 Not Found - id: ${id}`);
+      throw new HttpException("Proposal not found", HttpStatus.NOT_FOUND);
+    }
+
+    this.logger.log(
+      `[RESPONSE] 200 OK - proposal ${id} retrieved - ${Date.now() - startTime}ms`
+    );
+
+    return proposal;
   }
 
   @Delete(":id")
