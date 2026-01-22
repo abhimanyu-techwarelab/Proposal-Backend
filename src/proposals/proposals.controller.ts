@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Delete,
+  Patch,
   Body,
   Param,
   HttpException,
@@ -26,6 +27,8 @@ import { GenerateProposalDto } from "./dto/generate-proposal.dto";
 import { ApproveProposalDto } from "./dto/approve-proposal.dto";
 import { RejectProposalDto } from "./dto/reject-proposal.dto";
 import { ExtractFieldsDto } from "./dto/extract-fields.dto";
+import { CreateDraftDto } from "./dto/create-draft.dto";
+import { UpdateDraftDto } from "./dto/update-draft.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import { RequirePermission } from "../auth/decorators/require-permission.decorator";
@@ -761,6 +764,276 @@ export class ProposalsController {
         approved_at: proposal.approved_at,
         rejection_reason: proposal.rejection_reason,
       },
+    };
+  }
+
+  // ============================================================================
+  // Draft Proposal Endpoints
+  // ============================================================================
+
+  @Post("draft")
+  @RequirePermission("create_proposals_product")
+  @ApiOperation({
+    summary: "Create a draft proposal",
+    description:
+      "Creates a draft proposal and optionally queues field extraction from uploaded files. Returns the draft ID for tracking.",
+  })
+  @ApiResponse({
+    status: 201,
+    description: "Draft created successfully",
+    schema: {
+      type: "object",
+      properties: {
+        success: { type: "boolean", example: true },
+        id: { type: "string", example: "123e4567-e89b-12d3-a456-426614174000" },
+        extraction_job_id: { type: "string", nullable: true },
+      },
+    },
+  })
+  async createDraft(
+    @Body() dto: CreateDraftDto,
+    @CurrentUser() user: JwtPayload
+  ) {
+    this.logger.log(`[REQUEST] POST /product/proposals/draft`);
+    const startTime = Date.now();
+
+    // Create the draft
+    const draft = await this.proposalsService.createDraft({
+      template_id: dto.template_id,
+      created_by: user.user_id,
+      subscription_id: dto.subscription_id,
+      audio_storage_paths: dto.audio_storage_paths,
+      document_storage_paths: dto.document_storage_paths,
+      title: dto.title,
+      client_name: dto.client_name,
+      client_email: dto.client_email,
+      industry: dto.industry,
+      summary: dto.summary,
+      goals: dto.goals,
+      scope: dto.scope,
+    });
+
+    // If files were provided, queue extraction
+    let extractionJobId: string | null = null;
+    const hasFiles =
+      (dto.audio_storage_paths && dto.audio_storage_paths.length > 0) ||
+      (dto.document_storage_paths && dto.document_storage_paths.length > 0);
+
+    if (hasFiles) {
+      // Generate signed URLs for the files
+      const audioUrls: string[] = [];
+      const documentUrls: string[] = [];
+
+      if (dto.audio_storage_paths) {
+        for (const path of dto.audio_storage_paths) {
+          const fullPath = `proposal-audio/${path}`;
+          const { signedUrls } = await this.proposalsService[
+            "storageService"
+          ].getSignedUrls([fullPath]);
+          if (signedUrls[0]?.signedUrl) {
+            audioUrls.push(signedUrls[0].signedUrl);
+          }
+        }
+      }
+
+      if (dto.document_storage_paths) {
+        for (const path of dto.document_storage_paths) {
+          const fullPath = `proposal-documents/${path}`;
+          const { signedUrls } = await this.proposalsService[
+            "storageService"
+          ].getSignedUrls([fullPath]);
+          if (signedUrls[0]?.signedUrl) {
+            documentUrls.push(signedUrls[0].signedUrl);
+          }
+        }
+      }
+
+      if (audioUrls.length > 0 || documentUrls.length > 0) {
+        extractionJobId = await this.proposalsService.queueExtraction(
+          draft.id,
+          audioUrls,
+          documentUrls
+        );
+      }
+    }
+
+    this.logger.log(
+      `[RESPONSE] 201 Created - draft ${draft.id} - ${Date.now() - startTime}ms`
+    );
+
+    return {
+      success: true,
+      id: draft.id,
+      extraction_job_id: extractionJobId,
+    };
+  }
+
+  @Patch(":id/draft")
+  @RequirePermission("create_proposals_product")
+  @ApiOperation({
+    summary: "Update a draft proposal",
+    description: "Updates fields on an existing draft proposal.",
+  })
+  @ApiParam({ name: "id", description: "Draft proposal ID" })
+  @ApiResponse({
+    status: 200,
+    description: "Draft updated successfully",
+  })
+  async updateDraft(
+    @Param("id") id: string,
+    @Body() dto: UpdateDraftDto,
+    @CurrentUser() user: JwtPayload
+  ) {
+    this.logger.log(`[REQUEST] PATCH /product/proposals/${id}/draft`);
+    const startTime = Date.now();
+
+    // Get current proposal to detect new files
+    const currentProposal = await this.proposalsService.findOneById(id);
+    if (!currentProposal) {
+      throw new HttpException("Draft proposal not found", HttpStatus.NOT_FOUND);
+    }
+
+    // Detect new files by comparing arrays
+    const currentAudioPaths = currentProposal.audio_storage_paths || [];
+    const currentDocPaths = currentProposal.document_storage_paths || [];
+    const newAudioPaths = dto.audio_storage_paths || currentAudioPaths;
+    const newDocPaths = dto.document_storage_paths || currentDocPaths;
+
+    // Find paths that are in new but not in current
+    const addedAudioPaths = newAudioPaths.filter(
+      (path) => !currentAudioPaths.includes(path)
+    );
+    const addedDocPaths = newDocPaths.filter(
+      (path) => !currentDocPaths.includes(path)
+    );
+
+    const hasNewFiles = addedAudioPaths.length > 0 || addedDocPaths.length > 0;
+
+    // Update the draft
+    const draft = await this.proposalsService.updateDraft(id, dto);
+
+    // If new files were added, re-queue extraction
+    let extractionJobId: string | null = null;
+    if (hasNewFiles) {
+      this.logger.log(
+        `[EXTRACTION] New files detected - audio: ${addedAudioPaths.length}, docs: ${addedDocPaths.length}`
+      );
+
+      // Generate signed URLs for ALL files (not just new ones) for re-extraction
+      const audioUrls: string[] = [];
+      const documentUrls: string[] = [];
+
+      for (const path of newAudioPaths) {
+        const fullPath = `proposal-audio/${path}`;
+        const { signedUrls } = await this.proposalsService[
+          "storageService"
+        ].getSignedUrls([fullPath]);
+        if (signedUrls[0]?.signedUrl) {
+          audioUrls.push(signedUrls[0].signedUrl);
+        }
+      }
+
+      for (const path of newDocPaths) {
+        const fullPath = `proposal-documents/${path}`;
+        const { signedUrls } = await this.proposalsService[
+          "storageService"
+        ].getSignedUrls([fullPath]);
+        if (signedUrls[0]?.signedUrl) {
+          documentUrls.push(signedUrls[0].signedUrl);
+        }
+      }
+
+      if (audioUrls.length > 0 || documentUrls.length > 0) {
+        extractionJobId = await this.proposalsService.queueExtraction(
+          draft.id,
+          audioUrls,
+          documentUrls
+        );
+      }
+    }
+
+    this.logger.log(
+      `[RESPONSE] 200 OK - draft ${id} updated - ${Date.now() - startTime}ms`
+    );
+
+    return {
+      success: true,
+      proposal: draft,
+      extraction_job_id: extractionJobId,
+    };
+  }
+
+  @Get(":id/extraction-status")
+  @RequirePermission("read_proposals_product")
+  @ApiOperation({
+    summary: "Get extraction status for a draft",
+    description:
+      "Returns the current extraction status and progress for a draft proposal.",
+  })
+  @ApiParam({ name: "id", description: "Proposal ID" })
+  @ApiResponse({
+    status: 200,
+    description: "Extraction status retrieved",
+    schema: {
+      type: "object",
+      properties: {
+        extraction_status: {
+          type: "string",
+          enum: ["pending", "processing", "completed", "failed"],
+        },
+        extraction_progress: { type: "number", example: 45 },
+        extraction_job_id: { type: "string", nullable: true },
+      },
+    },
+  })
+  async getExtractionStatus(
+    @Param("id") id: string,
+    @CurrentUser() user: JwtPayload
+  ) {
+    this.logger.log(`[REQUEST] GET /product/proposals/${id}/extraction-status`);
+
+    const status = await this.proposalsService.getExtractionStatus(id);
+
+    return status;
+  }
+
+  @Post(":id/submit")
+  @RequirePermission("create_proposals_product")
+  @ApiOperation({
+    summary: "Submit a draft for generation",
+    description:
+      "Submits a draft proposal for AI generation. Changes status from draft to processing.",
+  })
+  @ApiParam({ name: "id", description: "Draft proposal ID" })
+  @ApiResponse({
+    status: 200,
+    description: "Draft submitted for generation",
+    schema: {
+      type: "object",
+      properties: {
+        success: { type: "boolean", example: true },
+        id: { type: "string" },
+        message: { type: "string" },
+      },
+    },
+  })
+  async submitDraft(
+    @Param("id") id: string,
+    @CurrentUser() user: JwtPayload
+  ) {
+    this.logger.log(`[REQUEST] POST /product/proposals/${id}/submit`);
+    const startTime = Date.now();
+
+    const result = await this.proposalsService.submitDraft(id);
+
+    this.logger.log(
+      `[RESPONSE] 200 OK - draft ${id} submitted - ${Date.now() - startTime}ms`
+    );
+
+    return {
+      success: true,
+      id: result.id,
+      message: "Draft submitted for generation",
     };
   }
 }

@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProposalsController } from './proposals.controller';
 import { ProposalsService } from './proposals.service';
 import { ProposalProcessor } from './processors/proposal.processor';
+import { ExtractionProcessor } from './processors/extraction.processor';
 import { StorageModule } from '../storage/storage.module';
 import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
 import { AIModule } from '../ai/ai.module';
@@ -17,6 +18,9 @@ import { Proposal } from './entities/proposal.entity';
     BullModule.registerQueue({
       name: 'proposal-generation',
     }),
+    BullModule.registerQueue({
+      name: 'field-extraction',
+    }),
     StorageModule,
     KnowledgeBaseModule,
     AIModule,
@@ -24,7 +28,7 @@ import { Proposal } from './entities/proposal.entity';
     CommonModule,
   ],
   controllers: [ProposalsController],
-  providers: [ProposalsService, ProposalProcessor],
+  providers: [ProposalsService, ProposalProcessor, ExtractionProcessor],
   exports: [ProposalsService],
 })
 export class ProposalsModule {}

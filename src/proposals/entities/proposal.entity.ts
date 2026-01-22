@@ -119,6 +119,15 @@ export class Proposal {
   status: string;
 
   @Column({ type: 'varchar', nullable: true })
+  extraction_job_id: string;
+
+  @Column({ type: 'int', default: 0 })
+  extraction_progress: number;
+
+  @Column({ type: 'varchar', nullable: true })
+  extraction_status: string; // 'pending' | 'processing' | 'completed' | 'failed'
+
+  @Column({ type: 'varchar', nullable: true })
   pinecone_namespace: string;
 
   @Column({ type: 'uuid', nullable: true })

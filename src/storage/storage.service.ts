@@ -28,6 +28,7 @@ export class StorageService {
           apikey: this.supabaseAnonKey,
         },
         responseType: "arraybuffer",
+        timeout: 120000, // 2 minutes for large file download
       });
 
       this.logger.log(
@@ -51,6 +52,7 @@ export class StorageService {
           apikey: this.supabaseAnonKey,
         },
         responseType: "arraybuffer",
+        timeout: 120000, // 2 minutes for large file download
       });
 
       this.logger.log(

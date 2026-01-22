@@ -31,6 +31,7 @@ export class ProposalsService {
     @InjectRepository(Proposal)
     private proposalRepository: Repository<Proposal>,
     @InjectQueue("proposal-generation") private proposalQueue: Queue,
+    @InjectQueue("field-extraction") private extractionQueue: Queue,
     private templatesService: TemplatesService,
     private dataTransformService: DataTransformService,
     private storageService: StorageService,
@@ -363,6 +364,12 @@ export class ProposalsService {
     );
 
     return proposal;
+  }
+
+  async findOneById(proposalId: string): Promise<Proposal | null> {
+    return this.proposalRepository.findOne({
+      where: { id: proposalId },
+    });
   }
 
   async findOneByOrganization(
@@ -1080,5 +1087,325 @@ export class ProposalsService {
     if (totalContent > 5000 && fieldsExtracted >= 8) return "high";
     if (totalContent > 1000 && fieldsExtracted >= 4) return "medium";
     return "low";
+  }
+
+  // ============================================================================
+  // Draft Proposal Methods
+  // ============================================================================
+
+  async createDraft(data: {
+    template_id: string;
+    created_by: string;
+    subscription_id: string;
+    audio_storage_paths?: string[];
+    document_storage_paths?: string[];
+    title?: string;
+    client_name?: string;
+    client_email?: string;
+    industry?: string;
+    summary?: string;
+    goals?: string;
+    scope?: string;
+  }): Promise<Proposal> {
+    this.logger.log(`[DRAFT] Creating draft proposal for user: ${data.created_by}`);
+
+    const proposal = this.proposalRepository.create({
+      template_id: data.template_id,
+      created_by: data.created_by,
+      subscription_id: data.subscription_id,
+      audio_storage_paths: data.audio_storage_paths || [],
+      document_storage_paths: data.document_storage_paths || [],
+      title: data.title,
+      client_name: data.client_name,
+      client_email: data.client_email,
+      industry: data.industry,
+      summary: data.summary,
+      goals: data.goals,
+      scope: data.scope,
+      status: "draft",
+      extraction_status: "pending",
+      extraction_progress: 0,
+      version_number: 1,
+    });
+
+    const savedProposal = await this.proposalRepository.save(proposal);
+    this.logger.log(`[DRAFT] Draft created with ID: ${savedProposal.id}`);
+
+    return savedProposal;
+  }
+
+  async queueExtraction(
+    proposalId: string,
+    audioUrls: string[],
+    documentUrls: string[]
+  ): Promise<string> {
+    this.logger.log(`[EXTRACTION] Queueing extraction for proposal: ${proposalId}`);
+
+    // Update status to processing
+    await this.updateExtractionStatus(proposalId, "processing", 0);
+
+    // Add job to queue
+    const job = await this.extractionQueue.add(
+      "extract",
+      {
+        proposalId,
+        audioUrls,
+        documentUrls,
+      },
+      {
+        attempts: 3,
+        backoff: {
+          type: "exponential",
+          delay: 5000,
+        },
+      }
+    );
+
+    // Save job ID
+    await this.updateExtractionJobId(proposalId, job.id as string);
+
+    this.logger.log(`[EXTRACTION] Job queued with ID: ${job.id}`);
+    return job.id as string;
+  }
+
+  async updateDraft(
+    proposalId: string,
+    data: Partial<{
+      audio_storage_paths: string[];
+      document_storage_paths: string[];
+      title: string;
+      client_name: string;
+      client_email: string;
+      industry: string;
+      summary: string;
+      goals: string;
+      scope: string;
+      deliverables: string[];
+      start_date: string;
+      end_date: string;
+      total_budget: number;
+      currency: string;
+      billing_type: string;
+      milestones: object;
+      team_members: object;
+      links: string[];
+      submitted_to: string[];
+    }>
+  ): Promise<Proposal> {
+    this.logger.log(`[DRAFT] Updating draft proposal: ${proposalId}`);
+
+    const proposal = await this.proposalRepository.findOne({
+      where: { id: proposalId },
+    });
+
+    if (!proposal) {
+      throw new HttpException("Draft proposal not found", HttpStatus.NOT_FOUND);
+    }
+
+    if (proposal.status !== "draft") {
+      throw new HttpException(
+        "Can only update draft proposals",
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    // Update fields
+    const updateData: Partial<Proposal> = {};
+
+    if (data.audio_storage_paths !== undefined) {
+      updateData.audio_storage_paths = data.audio_storage_paths;
+    }
+    if (data.document_storage_paths !== undefined) {
+      updateData.document_storage_paths = data.document_storage_paths;
+    }
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.client_name !== undefined) updateData.client_name = data.client_name;
+    if (data.client_email !== undefined) updateData.client_email = data.client_email;
+    if (data.industry !== undefined) updateData.industry = data.industry;
+    if (data.summary !== undefined) updateData.summary = data.summary;
+    if (data.goals !== undefined) updateData.goals = data.goals;
+    if (data.scope !== undefined) updateData.scope = data.scope;
+    if (data.deliverables !== undefined) updateData.deliverables = data.deliverables;
+    if (data.start_date !== undefined) {
+      updateData.start_date = new Date(data.start_date);
+    }
+    if (data.end_date !== undefined) {
+      updateData.end_date = new Date(data.end_date);
+    }
+    if (data.total_budget !== undefined) updateData.total_budget = data.total_budget;
+    if (data.currency !== undefined) updateData.currency = data.currency;
+    if (data.billing_type !== undefined) updateData.billing_type = data.billing_type;
+    if (data.milestones !== undefined) updateData.milestones = data.milestones;
+    if (data.team_members !== undefined) updateData.team_members = data.team_members;
+    if (data.links !== undefined) updateData.links = data.links;
+    if (data.submitted_to !== undefined) updateData.submitted_to = data.submitted_to;
+
+    await this.proposalRepository.update({ id: proposalId }, updateData);
+
+    const updatedProposal = await this.proposalRepository.findOne({
+      where: { id: proposalId },
+    });
+
+    this.logger.log(`[DRAFT] Draft updated: ${proposalId}`);
+    return updatedProposal!;
+  }
+
+  async updateDraftWithExtractedFields(
+    proposalId: string,
+    fields: ExtractedFields
+  ): Promise<void> {
+    this.logger.log(`[DRAFT] Updating draft with extracted fields: ${proposalId}`);
+
+    const updateData: Partial<Proposal> = {};
+
+    if (fields.title) updateData.title = fields.title;
+    if (fields.clientName) updateData.client_name = fields.clientName;
+    if (fields.clientEmail) updateData.client_email = fields.clientEmail;
+    if (fields.industry) updateData.industry = fields.industry;
+    if (fields.summary) updateData.summary = fields.summary;
+    if (fields.goals) updateData.goals = fields.goals;
+    if (fields.scope) updateData.scope = fields.scope;
+    if (fields.startDate) {
+      updateData.start_date = new Date(fields.startDate);
+    }
+    if (fields.endDate) {
+      updateData.end_date = new Date(fields.endDate);
+    }
+    if (fields.totalBudget) updateData.total_budget = fields.totalBudget;
+    if (fields.currency) updateData.currency = fields.currency;
+    if (fields.billingType) updateData.billing_type = fields.billingType;
+    if (fields.deliverables) updateData.deliverables = fields.deliverables;
+    if (fields.milestones) updateData.milestones = fields.milestones;
+    if (fields.teamMembers) updateData.team_members = fields.teamMembers;
+    if (fields.links) updateData.links = fields.links;
+    if (fields.recipients) updateData.submitted_to = fields.recipients.map(r => r.name);
+
+    await this.proposalRepository.update({ id: proposalId }, updateData);
+    this.logger.log(`[DRAFT] Extracted fields saved to draft: ${proposalId}`);
+  }
+
+  async updateExtractionStatus(
+    proposalId: string,
+    status: "pending" | "processing" | "completed" | "failed",
+    progress?: number
+  ): Promise<void> {
+    this.logger.log(
+      `[EXTRACTION] Updating status for ${proposalId}: ${status} (${progress}%)`
+    );
+
+    const updateData: Partial<Proposal> = {
+      extraction_status: status,
+    };
+
+    if (progress !== undefined) {
+      updateData.extraction_progress = progress;
+    }
+
+    await this.proposalRepository.update({ id: proposalId }, updateData);
+  }
+
+  async updateExtractionProgress(
+    proposalId: string,
+    progress: number
+  ): Promise<void> {
+    await this.proposalRepository.update(
+      { id: proposalId },
+      { extraction_progress: progress }
+    );
+  }
+
+  async updateExtractionJobId(
+    proposalId: string,
+    jobId: string
+  ): Promise<void> {
+    await this.proposalRepository.update(
+      { id: proposalId },
+      { extraction_job_id: jobId }
+    );
+  }
+
+  async getExtractionStatus(proposalId: string): Promise<{
+    extraction_status: string;
+    extraction_progress: number;
+    extraction_job_id: string | null;
+  }> {
+    const proposal = await this.proposalRepository.findOne({
+      where: { id: proposalId },
+      select: ["extraction_status", "extraction_progress", "extraction_job_id"],
+    });
+
+    if (!proposal) {
+      throw new HttpException("Proposal not found", HttpStatus.NOT_FOUND);
+    }
+
+    return {
+      extraction_status: proposal.extraction_status || "pending",
+      extraction_progress: proposal.extraction_progress || 0,
+      extraction_job_id: proposal.extraction_job_id || null,
+    };
+  }
+
+  async submitDraft(proposalId: string): Promise<{ id: string }> {
+    this.logger.log(`[DRAFT] Submitting draft for generation: ${proposalId}`);
+
+    const proposal = await this.proposalRepository.findOne({
+      where: { id: proposalId },
+    });
+
+    if (!proposal) {
+      throw new HttpException("Draft proposal not found", HttpStatus.NOT_FOUND);
+    }
+
+    if (proposal.status !== "draft") {
+      throw new HttpException(
+        "Can only submit draft proposals",
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    // Update status to processing
+    await this.proposalRepository.update(
+      { id: proposalId },
+      { status: "processing" }
+    );
+
+    // Create job data
+    const jobData: ProposalJobData = {
+      id: proposalId,
+      subscription_id: proposal.subscription_id,
+      template_id: proposal.template_id,
+      created_by: proposal.created_by,
+      title: proposal.title,
+      client_name: proposal.client_name,
+      client_email: proposal.client_email,
+      links: proposal.links,
+      industry: proposal.industry,
+      audio_storage_paths: proposal.audio_storage_paths,
+      document_storage_paths: proposal.document_storage_paths,
+      summary: proposal.summary,
+      goals: proposal.goals,
+      scope: proposal.scope,
+      deliverables: proposal.deliverables,
+      start_date: proposal.start_date?.toISOString(),
+      end_date: proposal.end_date?.toISOString(),
+      milestones: proposal.milestones as object[],
+      total_budget: proposal.total_budget,
+      currency: proposal.currency,
+      billing_type: proposal.billing_type,
+      team_members: proposal.team_members as object[],
+      submitted_to: proposal.submitted_to,
+    };
+
+    // Add to generation queue
+    await this.proposalQueue.add("generate", jobData, {
+      attempts: 3,
+      backoff: {
+        type: "exponential",
+        delay: 5000,
+      },
+    });
+
+    this.logger.log(`[DRAFT] Draft submitted to generation queue: ${proposalId}`);
+    return { id: proposalId };
   }
 }
