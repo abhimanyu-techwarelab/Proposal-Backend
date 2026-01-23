@@ -18,6 +18,12 @@ export class Organization {
   country: string;
 
   @Column({ type: 'text', nullable: true })
+  address: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  organization_size: string;
+
+  @Column({ type: 'text', nullable: true })
   logo_url: string;
 
   @Column({ type: 'varchar', nullable: true })

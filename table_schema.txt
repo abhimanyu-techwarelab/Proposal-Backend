@@ -85,7 +85,7 @@ CREATE TABLE plan_features (
   plan_id UUID REFERENCES plans(id),
   feature_id UUID REFERENCES features(id),
   limit INT,
-  is_true BOOLEAN DEFAULT FALSE
+  is_enabled BOOLEAN DEFAULT FALSE
 );
 
 -- =========================

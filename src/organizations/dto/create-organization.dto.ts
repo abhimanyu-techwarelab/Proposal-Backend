@@ -12,4 +12,12 @@ export class CreateOrganizationDto {
   @IsString()
   @IsOptional()
   country?: string;
+
+  @IsString()
+  @IsOptional()
+  address?: string;
+
+  @IsString()
+  @IsOptional()
+  organization_size?: string;
 }

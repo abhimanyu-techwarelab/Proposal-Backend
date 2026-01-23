@@ -20,6 +20,7 @@ import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import { RequirePermission } from "../auth/decorators/require-permission.decorator";
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { JwtPayload } from "../auth/interfaces/jwt-payload.interface";
+import { Public } from "../auth/decorators/public.decorator";
 
 @ApiTags('users')
 @ApiBearerAuth('JWT-auth')
@@ -31,8 +32,7 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post("create")
-  @UseGuards(PermissionsGuard)
-  @RequirePermission("create_user", "create_users_product")
+  @Public()
   @ApiOperation({
     summary: 'Create a new user',
     description: 'Creates a new user account. Requires create_user (Admin Panel) or create_users_product (Product App) permission.',

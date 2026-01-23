@@ -7,6 +7,7 @@ import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 
 @ApiTags('organizations')
 @ApiBearerAuth('JWT-auth')
@@ -18,7 +19,7 @@ export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
 
   @Post('create')
-  @RequirePermission('create_organization', 'read_organization')
+  @Public()
   @ApiOperation({
     summary: 'Create a new organization',
     description: 'Creates a new organization. Requires create_organization or read_organization permission.',

@@ -43,6 +43,8 @@ export class OrganizationsService {
     const organization = this.organizationRepository.create({
       name: dto.name,
       country: dto.country,
+      address: dto.address,
+      organization_size: dto.organization_size,
       primary_email: user.email,
     });
 
