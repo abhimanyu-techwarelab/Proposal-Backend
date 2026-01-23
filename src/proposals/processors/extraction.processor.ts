@@ -151,8 +151,19 @@ export class ExtractionProcessor extends WorkerHost {
         currency: currentProposal.currency || undefined,
         billingType: currentProposal.billing_type || undefined,
         deliverables: currentProposal.deliverables || undefined,
-        milestones: currentProposal.milestones || undefined,
-        teamMembers: currentProposal.team_members || undefined,
+        milestones: Array.isArray(currentProposal.milestones) 
+          ? currentProposal.milestones
+              .filter((m: any) => m && typeof m === 'object' && m.title)
+              .map((m: any) => ({ title: m.title }))
+          : undefined,
+        teamMembers: Array.isArray(currentProposal.team_members)
+          ? currentProposal.team_members
+              .filter((tm: any) => tm && typeof tm === 'object' && tm.role)
+              .map((tm: any) => ({ 
+                role: tm.role, 
+                experience: tm.experience ?? '' 
+              }))
+          : undefined,
         links: currentProposal.links || undefined,
       } : undefined;
 
