@@ -1,208 +1,270 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-01-16
+**Analysis Date:** 2026-01-27
 
 ## Directory Layout
 
 ```
-proposal-backend/
-├── src/                    # Source code
-│   ├── main.ts            # Application entry point
-│   ├── app.module.ts      # Root module
-│   ├── swagger-generator.ts # Swagger doc generator
-│   ├── ai/                # AI/LLM integration
-│   ├── auth/              # Authentication & authorization
-│   ├── common/            # Shared utilities
-│   ├── features/          # Feature flag system
-│   ├── health/            # Health check endpoints
-│   ├── knowledge-base/    # Vector DB & RAG
-│   ├── organizations/     # Organization management
-│   ├── permissions/       # Permission system
-│   ├── plans/             # Subscription plans
-│   ├── proposals/         # Core proposal feature
-│   ├── queue/             # Job queue config
-│   ├── roles/             # Role management
-│   ├── seed/              # Database seeding
-│   ├── storage/           # File storage
-│   ├── tags/              # Content tagging
-│   ├── templates/         # Proposal templates
-│   └── users/             # User management
-├── .planning/             # Project planning docs
-├── migrations/            # Database migrations
-├── package.json           # Project manifest
-├── tsconfig.json          # TypeScript config
-├── nest-cli.json          # NestJS CLI config
-└── .env                   # Environment variables
+Proposal-Backend/
+├── src/                       # Application source code
+│   ├── main.ts               # Server entry point
+│   ├── app.module.ts         # Root module
+│   ├── swagger-generator.ts  # API docs generator
+│   ├── auth/                 # Authentication & authorization
+│   ├── proposals/            # Core proposal feature
+│   ├── users/                # User management
+│   ├── organizations/        # Organization management
+│   ├── roles/                # Role management
+│   ├── permissions/          # Permission management
+│   ├── templates/            # Template management
+│   ├── storage/              # File storage (Supabase)
+│   ├── ai/                   # AI/LLM services
+│   ├── knowledge-base/       # Vector DB & parsing
+│   ├── queue/                # Job queue config
+│   ├── subscriptions/        # Subscription management
+│   ├── plans/                # Service plans
+│   ├── features/             # Feature flags
+│   ├── dashboard/            # Analytics
+│   ├── tags/                 # Content tagging
+│   ├── seed/                 # Database seeding
+│   ├── health/               # Health checks
+│   └── common/               # Shared utilities
+├── .env                      # Environment variables (committed - security issue)
+├── .gitignore               # Git ignore patterns
+├── nest-cli.json            # NestJS CLI config
+├── package.json             # Dependencies
+├── package-lock.json        # Dependency lockfile
+├── table_schema.txt         # Database schema reference
+└── tsconfig.json            # TypeScript config
 ```
 
 ## Directory Purposes
 
+**src/**
+- Purpose: All application source code
+- Contains: TypeScript modules, controllers, services, entities
+- Entry: `main.ts`, `app.module.ts`
+
 **src/proposals/**
 - Purpose: Core proposal generation feature
-- Contains: Controller, service, processor, entity, DTOs
-- Key files: `proposals.service.ts` (707 lines), `proposal.processor.ts`
-- Subdirectories: `dto/`, `entities/`, `processors/`
-
-**src/ai/**
-- Purpose: AI/LLM integration layer
-- Contains: AI service wrapper, domain-specific agents, tools
-- Key files: `ai.service.ts`, `agents/general-info.agent.ts`, `agents/scope.agent.ts`, `agents/timeline.agent.ts`
-- Subdirectories: `agents/`, `tools/`
+- Contains:
+  - `proposals.module.ts` - Module configuration
+  - `proposals.controller.ts` - API endpoints (1040 lines)
+  - `proposals.service.ts` - Business logic (1411 lines)
+  - `dto/` - Request/response DTOs
+  - `entities/` - Proposal entity
+  - `processors/` - BullMQ job processors (proposal.processor.ts, extraction.processor.ts)
+  - `interfaces/` - TypeScript interfaces (extracted-fields.interface.ts)
+- Key files:
+  - Proposal generation, versioning, extraction, rendering
 
 **src/auth/**
 - Purpose: Authentication and authorization
-- Contains: JWT strategy, guards, decorators
-- Key files: `auth.service.ts`, `guards/jwt-auth.guard.ts`, `guards/permissions.guard.ts`
-- Subdirectories: `decorators/`, `dto/`, `guards/`, `interfaces/`, `strategies/`
+- Contains:
+  - `auth.module.ts`, `auth.controller.ts`, `auth.service.ts`
+  - `guards/` - JwtAuthGuard, PermissionsGuard
+  - `strategies/` - jwt.strategy.ts (Passport)
+  - `decorators/` - @CurrentUser(), @RequirePermission(), @Public()
+  - `interfaces/` - jwt-payload.interface.ts
+  - `dto/` - login.dto.ts
+- Key files: JWT generation, password validation, permission resolution
 
-**src/knowledge-base/**
-- Purpose: Vector database and RAG integration
-- Contains: Pinecone integration, document chunking, embedding
-- Key files: `knowledge-base.service.ts` (396 lines)
-- Subdirectories: None
-
-**src/storage/**
-- Purpose: Cloud file storage abstraction
-- Contains: Supabase S3 integration
-- Key files: `storage.service.ts`, `storage.controller.ts`
-- Subdirectories: `dto/`
-
-**src/templates/**
-- Purpose: Proposal template management and rendering
-- Contains: Template CRUD, Handlebars rendering, PDF generation
-- Key files: `templates.service.ts` (591 lines)
-- Subdirectories: `dto/`, `entities/`
+**src/users/**
+- Purpose: User management
+- Contains:
+  - `users.module.ts`, `users.controller.ts`, `users.service.ts`
+  - `entities/` - user.entity.ts
+  - `dto/` - create-user.dto.ts, update-user.dto.ts
+- Key files: User CRUD, password hashing, email validation
 
 **src/organizations/**
-- Purpose: Multi-tenant organization management
-- Contains: Organization CRUD with auto role setup
-- Key files: `organizations.service.ts` (278 lines)
-- Subdirectories: `dto/`, `entities/`
+- Purpose: Organization/tenant management
+- Contains:
+  - `organizations.module.ts`, `organizations.controller.ts`, `organizations.service.ts`
+  - `entities/` - organization.entity.ts
+  - `dto/` - create-organization.dto.ts, update-organization.dto.ts
+- Key files: Multi-tenancy, organization CRUD
 
-**src/users/, src/roles/, src/permissions/**
-- Purpose: User and RBAC management
-- Contains: User CRUD, role CRUD, permission mappings
-- Key files: `users.service.ts`, `roles.service.ts`, `permissions.service.ts`, `role-permissions.service.ts`
+**src/roles/** and **src/permissions/**
+- Purpose: RBAC (Role-Based Access Control)
+- Contains:
+  - Module, controller, service for each
+  - `entities/` - role.entity.ts, permission.entity.ts, role-permission.entity.ts
+  - `dto/` - Create/update DTOs
+- Key files: Role-permission mappings, access control
+
+**src/templates/**
+- Purpose: Proposal template management
+- Contains:
+  - `templates.module.ts`, `templates.controller.ts`, `templates.service.ts`
+  - `entities/` - template.entity.ts, template-tag.entity.ts
+  - `dto/` - Template DTOs
+- Key files: Handlebars rendering, template CRUD
+
+**src/storage/**
+- Purpose: File storage integration (Supabase)
+- Contains:
+  - `storage.module.ts`, `storage.controller.ts`, `storage.service.ts`
+  - `dto/` - Storage operation DTOs
+- Key files: File upload/download, signed URLs
+
+**src/ai/**
+- Purpose: AI/LLM integration
+- Contains:
+  - `ai.module.ts`, `ai.service.ts`, `audio-chunking.service.ts`
+  - `agents/` - general-info.agent.ts, scope.agent.ts, timeline.agent.ts, field-extraction.agent.ts
+  - `tools/` - LangChain tools
+- Key files: OpenAI/LangChain orchestration, audio transcription
+
+**src/knowledge-base/**
+- Purpose: Vector database and document parsing
+- Contains:
+  - `knowledge-base.module.ts`, `knowledge-base.service.ts`
+- Key files: Pinecone integration, PDF/DOCX parsing, text chunking
 
 **src/queue/**
 - Purpose: Job queue configuration
-- Contains: BullMQ module setup with Redis
-- Key files: `queue.module.ts`
+- Contains:
+  - `queue.module.ts` - BullMQ setup
+- Key files: Redis connection, queue registration
+
+**src/subscriptions/, src/plans/, src/features/**
+- Purpose: Subscription/billing management
+- Contains: Standard module/controller/service/entity/dto structure per feature
+- Key files: Subscription CRUD, plan management, feature flags
+
+**src/dashboard/**
+- Purpose: Analytics and insights
+- Contains: dashboard.module.ts, dashboard.controller.ts, dashboard.service.ts, dto/
+- Key files: Analytics queries
+
+**src/tags/**
+- Purpose: Content tagging
+- Contains: tags.module.ts, tags.controller.ts, tags.service.ts, entities/tag.entity.ts, dto/
+- Key files: Tag CRUD for templates/proposals
+
+**src/seed/**
+- Purpose: Database initialization and seeding
+- Contains: seed.module.ts, seed.controller.ts, seed.service.ts
+- Key files: Initial data population
+
+**src/health/**
+- Purpose: Health checks
+- Contains: health.module.ts, health.controller.ts
+- Key files: API health status
 
 **src/common/**
 - Purpose: Shared utilities
-- Contains: Data transformation, common utilities
-- Key files: `data-transform.service.ts`, `utils.service.ts`
+- Contains: common.module.ts, utils.service.ts, data-transform.service.ts
+- Key files: General helpers, data transformation
 
 ## Key File Locations
 
 **Entry Points:**
-- `src/main.ts` - Application bootstrap, CORS, Swagger setup
-- `src/app.module.ts` - Root module, imports all features
+- `src/main.ts` - Server bootstrap, listens on port 3000
+- `src/app.module.ts` - Root module, global config
 
 **Configuration:**
-- `tsconfig.json` - TypeScript compiler options
-- `nest-cli.json` - NestJS CLI configuration
-- `.env` - Environment variables (secrets, DB config)
-- `package.json` - Dependencies and scripts
+- `tsconfig.json` - TypeScript compiler config (target: ES2021, module: CommonJS)
+- `nest-cli.json` - NestJS CLI config
+- `package.json` - Dependencies and npm scripts
+- `.env` - Environment variables (SECURITY ISSUE: committed to repo)
 
 **Core Logic:**
-- `src/proposals/proposals.service.ts` - Proposal business logic
-- `src/proposals/processors/proposal.processor.ts` - Async job processor
-- `src/ai/ai.service.ts` - OpenAI client wrapper
-- `src/knowledge-base/knowledge-base.service.ts` - RAG implementation
-- `src/templates/templates.service.ts` - Template rendering
-
-**Authentication:**
-- `src/auth/auth.service.ts` - Login, JWT creation, permission loading
-- `src/auth/guards/jwt-auth.guard.ts` - Token validation
-- `src/auth/guards/permissions.guard.ts` - Permission checking
-
-**Database Entities:**
-- `src/proposals/entities/proposal.entity.ts` - Proposal schema (50+ columns)
-- `src/users/entities/user.entity.ts` - User schema
-- `src/organizations/entities/organization.entity.ts` - Organization schema
-- `src/templates/entities/template.entity.ts` - Template schema
+- `src/proposals/proposals.service.ts` - Proposal generation (1411 lines)
+- `src/proposals/processors/proposal.processor.ts` - Async generation worker
+- `src/proposals/processors/extraction.processor.ts` - Async extraction worker
+- `src/auth/auth.service.ts` - Authentication logic
+- `src/users/users.service.ts` - User management
+- `src/ai/ai.service.ts` - AI orchestration
+- `src/knowledge-base/knowledge-base.service.ts` - Vector DB operations
 
 **Testing:**
-- No test files present in codebase
+- Not detected - No test files (*.spec.ts, *.test.ts) found
+- `package.json` has empty test script
+
+**Documentation:**
+- `table_schema.txt` - Database schema reference in root
+- Swagger/OpenAPI at `/api-docs` endpoint
 
 ## Naming Conventions
 
 **Files:**
-- `kebab-case.ts` for all TypeScript files
-- `*.controller.ts` - HTTP handlers
-- `*.service.ts` - Business logic
-- `*.module.ts` - NestJS modules
-- `*.entity.ts` - Database entities
-- `*.dto.ts` - Data transfer objects
-- `*.guard.ts` - Route guards
-- `*.decorator.ts` - Custom decorators
-- `*.agent.ts` - AI agents
-- `*.processor.ts` - Queue processors
+- Feature files: `feature-name.controller.ts`, `feature-name.service.ts`, `feature-name.module.ts`
+- Entities: `entity-name.entity.ts` (e.g., `user.entity.ts`, `proposal.entity.ts`)
+- DTOs: `action-entity.dto.ts` (e.g., `create-user.dto.ts`, `update-proposal.dto.ts`)
+- Guards: `guard-name.guard.ts` (e.g., `jwt-auth.guard.ts`, `permissions.guard.ts`)
+- Strategies: `strategy-name.strategy.ts` (e.g., `jwt.strategy.ts`)
+- Processors: `processor-name.processor.ts` (e.g., `proposal.processor.ts`)
+- Interfaces: `interface-name.interface.ts` (e.g., `jwt-payload.interface.ts`)
+- Decorators: `decorator-name.decorator.ts` (e.g., `current-user.decorator.ts`)
 
 **Directories:**
-- lowercase for feature modules (e.g., `proposals/`, `users/`)
-- Plural names for collections (e.g., `entities/`, `dto/`)
-- Standard subdirectories: `dto/`, `entities/`, `guards/`, `decorators/`
-
-**Special Patterns:**
-- Feature module structure: `{name}.controller.ts`, `{name}.service.ts`, `{name}.module.ts`
-- Entity files in `entities/` subdirectory
-- DTOs in `dto/` subdirectory
+- kebab-case for all directories: `knowledge-base`, `role-permissions`, `audio-chunking`
+- Plural names for features: `proposals`, `users`, `organizations`, `templates`
+- Singular for infrastructure: `storage`, `queue`, `auth`, `seed`, `health`
+- Standard subdirectories:
+  - `dto/` - Data Transfer Objects
+  - `entities/` - TypeORM database entities
+  - `interfaces/` - TypeScript interfaces
+  - `guards/` - Route guards
+  - `strategies/` - Passport strategies
+  - `decorators/` - Custom decorators
+  - `processors/` - BullMQ job processors
+  - `agents/` - AI agents
+  - `tools/` - AI tools
 
 ## Where to Add New Code
 
 **New Feature:**
-- Primary code: `src/{feature-name}/`
-- Controller: `src/{feature-name}/{feature-name}.controller.ts`
-- Service: `src/{feature-name}/{feature-name}.service.ts`
-- Module: `src/{feature-name}/{feature-name}.module.ts`
-- Import module in `src/app.module.ts`
+- Primary code: `src/feature-name/` directory with:
+  - `feature-name.module.ts`
+  - `feature-name.controller.ts`
+  - `feature-name.service.ts`
+  - `dto/` subdirectory
+  - `entities/` subdirectory (if persisted)
+- Tests: Co-located `feature-name.service.spec.ts`, `feature-name.controller.spec.ts` (currently missing)
+- Import: Add to `src/app.module.ts` imports array
 
 **New Entity:**
-- Implementation: `src/{feature}/entities/{entity-name}.entity.ts`
-- Add to TypeOrmModule.forRoot() entities array in `src/app.module.ts`
+- Implementation: `src/feature-name/entities/entity-name.entity.ts`
+- TypeORM decorators: `@Entity()`, `@Column()`, `@PrimaryGeneratedColumn('uuid')`
+- Register: Add to `TypeOrmModule.forFeature([EntityName])` in feature module
 
-**New DTO:**
-- Implementation: `src/{feature}/dto/{action}-{entity}.dto.ts`
-- Example: `create-user.dto.ts`, `update-organization.dto.ts`
+**New API Endpoint:**
+- Definition: Method in existing `*.controller.ts`
+- Decorators: `@Post()`, `@Get()`, `@Put()`, `@Delete()`, `@UseGuards()`
+- Handler: Method calls service layer
+- Documentation: `@ApiOperation()`, `@ApiResponse()` for Swagger
+
+**New Background Job:**
+- Queue setup: Add queue name to `src/queue/queue.module.ts`
+- Processor: `src/feature-name/processors/processor-name.processor.ts`
+- Pattern: Extend `WorkerHost`, implement `process(job: Job<DataType>)`
+- Enqueue: Call `this.queue.add('job-name', data)` from service
 
 **New AI Agent:**
-- Implementation: `src/ai/agents/{agent-name}.agent.ts`
-- Register in `src/ai/ai.service.ts`
-
-**New Guard/Decorator:**
-- Guards: `src/auth/guards/{name}.guard.ts`
-- Decorators: `src/auth/decorators/{name}.decorator.ts`
+- Implementation: `src/ai/agents/agent-name.agent.ts`
+- Pattern: LangChain agent with system prompt and tools
+- Register: Export from `src/ai/ai.module.ts`, use in AIService
 
 **Utilities:**
-- Shared helpers: `src/common/{name}.service.ts`
-- Type definitions: `src/{feature}/interfaces/{name}.interface.ts`
+- Shared helpers: `src/common/utils.service.ts`
+- Type definitions: `src/common/interfaces/`
 
 ## Special Directories
 
-**.planning/**
-- Purpose: Project planning documentation
-- Contains: Codebase analysis, roadmaps, plans
-- Committed: Yes
-
-**migrations/**
-- Purpose: Database migration files
-- Source: Manual or TypeORM generated
-- Committed: Yes
+**.env**
+- Purpose: Environment variables (database credentials, API keys)
+- Source: Local development configuration
+- Committed: Yes (CRITICAL SECURITY ISSUE - all credentials exposed in repo)
+- Should be: Gitignored with `.env.example` as template
 
 **node_modules/**
-- Purpose: npm dependencies
-- Source: npm install
-- Committed: No (.gitignore)
-
-**dist/**
-- Purpose: Compiled JavaScript output
-- Source: nest build
-- Committed: No (.gitignore)
+- Purpose: Installed dependencies (491 directories)
+- Committed: No (in .gitignore)
 
 ---
 
-*Structure analysis: 2026-01-16*
+*Structure analysis: 2026-01-27*
 *Update when directory structure changes*

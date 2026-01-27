@@ -1,166 +1,223 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-01-16
+**Analysis Date:** 2026-01-27
 
 ## Naming Patterns
 
 **Files:**
-- kebab-case for all files (`proposals.service.ts`, `jwt-auth.guard.ts`)
-- No test files present (*.test.ts, *.spec.ts)
-- Standard suffixes: `.controller.ts`, `.service.ts`, `.module.ts`, `.entity.ts`, `.dto.ts`
+- kebab-case for all files: `user.entity.ts`, `create-user.dto.ts`, `jwt-auth.guard.ts`
+- Test files: Not applicable (no tests exist - `*.test.ts`, `*.spec.ts` would be co-located with source)
+- Dot-separated suffixes: `.entity.ts`, `.dto.ts`, `.service.ts`, `.controller.ts`, `.module.ts`, `.guard.ts`, `.strategy.ts`, `.processor.ts`, `.interface.ts`, `.decorator.ts`
 
 **Functions:**
-- camelCase for all functions (`create()`, `findAll()`, `findOne()`, `softDelete()`)
-- No special prefix for async functions
-- Descriptive names: `generateProposal()`, `createRetryProposal()`, `getNextVersionNumber()`
+- camelCase for all functions: `findAll()`, `findOne()`, `softDelete()`, `generateProposal()`, `createNewProposal()`
+- No special prefix for async functions (just use `async` keyword)
+- Event handlers: handleEventName pattern (if applicable)
+- Private methods: No underscore prefix (rely on TypeScript `private` keyword)
 
 **Variables:**
-- snake_case for database/DTO fields: `organization_id`, `user_id`, `is_deleted`, `created_at`
-- camelCase for local variables: `organizationId`, `pageNum`, `startTime`
-- Private members: `private readonly` with no underscore prefix
+- camelCase for local variables: `organizationId`, `pageNum`, `limitNum`, `startTime`, `currentUser`
+- Constants: UPPER_SNAKE_CASE for module-level constants: `DEFAULT_FREE_PLAN_ID` (`src/subscriptions/subscriptions.service.ts` line 8)
+- Database column names: snake_case (TypeORM entities): `password_hash`, `is_deleted`, `created_at`, `updated_at`, `organization_id`, `role_id`, `client_name`
 
 **Types:**
-- PascalCase for classes: `ProposalsService`, `JwtAuthGuard`, `Proposal`
-- PascalCase for interfaces: `JwtPayload`, `ProposalJobData`
-- PascalCase for DTOs: `CreateUserDto`, `GenerateProposalDto`
-- No I prefix for interfaces
+- Interfaces: PascalCase, no I prefix: `User`, `JwtPayload`, `ExtractedFields` (not `IUser`)
+- Type aliases: PascalCase: `UserConfig`, `ResponseData`, `MergedProposalData`
+- Enums: PascalCase for name, UPPER_CASE for values (if used): `Status.PENDING`, `Status.COMPLETED`
 
 ## Code Style
 
 **Formatting:**
-- 2-space indentation
-- Semicolons required on all statements
-- Mixed quote style (single for NestJS imports, double in many files)
-- No trailing commas observed
+- Tool: Not configured (no .prettierrc or .eslintrc found)
+- Line length: Generally 80-100 characters
+- Quotes: Single quotes (`'`) for strings and imports
+- Template literals (backticks) for interpolation and multi-line strings
+- Semicolons: Required (all statements end with `;`)
+- Indentation: 2 spaces (consistent across all files)
+
+**Examples:**
+- `src/users/users.service.ts` - Single quotes on lines 53, 58
+- `src/users/users.controller.ts` lines 1-13 - Multi-line import destructuring
+- `src/auth/auth.service.ts` - Template literals for logging
 
 **Linting:**
-- No ESLint configuration present
-- No Prettier configuration present
-- Style enforced by convention only
+- Tool: Not configured (no .eslintrc or eslint.config.js found)
+- Rules: Relies on developer discipline
+- TypeScript compiler enforces some patterns via `tsconfig.json`:
+  - `strictNullChecks: true`
+  - `noImplicitAny: false` (allows implicit any - relaxed)
+  - `experimentalDecorators: true`
+  - `emitDecoratorMetadata: true`
 
 ## Import Organization
 
 **Order:**
-1. NestJS core packages (`@nestjs/common`, `@nestjs/typeorm`)
-2. External packages (`typeorm`, `bcrypt`, `openai`)
-3. Internal modules (relative imports `./`, `../`)
+1. External packages (NestJS, TypeORM, etc.)
+2. Internal modules by type (entities, services, DTOs)
+3. Relative imports (., ..)
 
 **Grouping:**
-- No explicit blank lines between groups
-- Multiple imports from same package combined
+- No enforced blank lines between groups (varies by file)
+- Generally alphabetical within groups
+
+**Example from `src/users/users.controller.ts`:**
+```typescript
+import { Injectable, Logger, ConflictException, ... } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
+import * as bcrypt from 'bcrypt';
+import { User } from './entities/user.entity';
+import { Role } from '../roles/entities/role.entity';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+```
 
 **Path Aliases:**
-- `@/*` maps to `src/*` (configured in `tsconfig.json`)
-- Used sparingly in codebase
+- `@/` maps to `src/` (configured in `tsconfig.json`)
+- Not widely used in codebase (relative imports preferred)
 
 ## Error Handling
 
 **Patterns:**
-- NestJS HTTP exceptions: `NotFoundException`, `BadRequestException`, `InternalServerErrorException`
-- Services throw errors, controllers catch and transform
-- Try-catch at service boundaries for external calls
+- Throw exceptions in services, catch at boundaries (controllers/processors)
+- NestJS built-in exceptions: `ConflictException`, `NotFoundException`, `BadRequestException`, `UnauthorizedException`, `HttpException`
+- Examples: `src/users/users.service.ts` lines 34-36, 44-46, 152-154
+- Async: Use try/catch in services, no .catch() chains preferred
 
 **Error Types:**
-- Throw on: Entity not found, validation failure, external service error
-- Return null: When absence is expected (findOne with optional)
-- Log before throwing: `this.logger.error(...); throw new Error()`
+- Throw on invalid input: `throw new BadRequestException('Invalid data')`
+- Throw on not found: `throw new NotFoundException('User not found')`
+- Throw on conflicts: `throw new ConflictException('Email already exists')`
+- Log before throwing: `this.logger.error('[CREATE] Failed...', error)`
+
+**Error Messages:**
+- Include context: entity name, operation, reason
+- Example: `User with email ${email} already exists`
+- Example: `User with id ${id} not found`
 
 ## Logging
 
 **Framework:**
-- NestJS built-in Logger: `private readonly logger = new Logger(ClassName.name)`
-- Levels used: `log()`, `debug()`, `error()`
+- NestJS built-in Logger: `new Logger(ClassName.name)`
+- Instantiated in constructor: `private readonly logger = new Logger(UsersService.name);`
 
 **Patterns:**
-- Bracketed context prefix: `[CREATE]`, `[INIT]`, `[JWT]`, `[STEP 1]`
-- Include relevant IDs: `this.logger.log(\`[CREATE] User created with ID: ${id}\`)`
-- Log at service method entry/exit
-- Log async job progress with steps
+- Format: `[OPERATION] Message` or `[ACTION] Details`
+- Levels: `log()`, `warn()`, `error()`, `debug()` (no trace)
+- Template literals for interpolation: ``this.logger.log(`[CREATE] Creating user: ${dto.email}`)``
+
+**Examples from `src/users/users.service.ts`:**
+- Line 23: ``this.logger.log(`[INIT] UsersService initialized`)``
+- Line 27: ``this.logger.log(`[CREATE] Creating user: ${dto.email}`)``
+- Line 145: ``this.logger.log(`[FIND_ONE] Fetching user: ${id}`)``
+
+**When to Log:**
+- Service initialization: `[INIT]`
+- Start of operations: `[CREATE]`, `[UPDATE]`, `[DELETE]`, `[FIND_ONE]`
+- Completion: `[SUCCESS]`, `[COMPLETE]`
+- Warnings: Non-fatal issues
+- Errors: Failures with error object
+- Not in utility functions (only at service boundaries)
 
 ## Comments
 
 **When to Comment:**
-- Step-based comments in complex flows: `// 1. Fetch parent proposal`
-- Business rule explanations: `// Create \"Super Admin\" role for the organization`
-- Algorithm explanations rarely present
+- Explain why, not what (code should be self-documenting)
+- Document business rules: `// Users must verify email within 24 hours`
+- Explain non-obvious algorithms or workarounds
+- Mark temporary code: `// TODO: Fix race condition`
+- Avoid obvious comments: `// increment counter`
 
 **JSDoc/TSDoc:**
-- Not used for functions
-- Swagger decorators used instead for API documentation
+- Used for public methods in services
+- Format: Multi-line JSDoc blocks with description
+- Example from `src/subscriptions/subscriptions.service.ts`:
+  ```typescript
+  /**
+   * Find an active subscription by organization ID
+   * Active means: status is 'active', 'trialing', or 'past_due'
+   * AND current_period_end is in the future OR null (lifetime subscription)
+   */
+  ```
+- Not required for simple getters/setters or self-explanatory methods
 
 **TODO Comments:**
-- Not observed in codebase
+- Format: `// TODO: description` (no username, using git blame)
+- Link to issue if exists: `// TODO: Fix race condition (issue #123)`
 
 ## Function Design
 
 **Size:**
-- Some large functions (proposal generation ~100 lines)
-- Extraction into smaller methods not consistently applied
+- Keep under 50-100 lines where possible
+- Large services exist (proposals.service.ts is 1411 lines - needs refactoring)
+- Extract helpers for complex logic
 
 **Parameters:**
-- DTOs for request data: `create(dto: CreateUserDto)`
-- Destructuring used in service methods
-- Repository injection via constructor
+- Destructure DTOs in parameter list: `function process({ id, name }: ProcessParams)`
+- Use DTOs for 3+ parameters: `create(dto: CreateUserDto)`
+- TypeORM repositories injected via constructor
 
 **Return Values:**
-- Explicit returns with type annotations
-- Async functions return Promises
-- Repository operations return entities
+- Explicit return statements
+- Return early for guard clauses
+- Async functions return Promise<T>
+- Example: `async findOne(id: string): Promise<User>`
 
 ## Module Design
 
 **Exports:**
-- Named exports for classes
-- Each module exports its service
-- Controllers not exported (used internally by NestJS)
+- Named exports only (no default exports)
+- Export services from modules: `exports: [UsersService]`
+- Export entities for TypeORM: `TypeOrmModule.forFeature([User])`
+
+**Module Pattern:**
+- Each feature has dedicated module: `users.module.ts`, `proposals.module.ts`
+- Module imports dependencies: `imports: [TypeOrmModule, StorageModule]`
+- Module provides services: `providers: [UsersService]`
+- Module exposes public API: `exports: [UsersService]`
 
 **Barrel Files:**
-- Not used (direct file imports)
+- Not used (no index.ts re-exports)
+- Direct imports preferred: `import { User } from './entities/user.entity'`
 
-**Circular Dependencies:**
-- Avoided through module imports in `app.module.ts`
-- ForwardRef not observed
+## NestJS-Specific Patterns
 
-## API Documentation
+**Decorator Usage:**
+- Class decorators: `@Injectable()`, `@Module()`, `@Controller()`, `@Entity()`
+- Method decorators: `@Post()`, `@Get()`, `@Put()`, `@Delete()`, `@UseGuards()`
+- Parameter decorators: `@Body()`, `@Query()`, `@Param()`, `@CurrentUser()`
+- Property decorators: `@ApiProperty()`, `@IsNotEmpty()`, `@IsEmail()`, `@Column()`
 
-**Swagger Decorators:**
-- Extensive use of Swagger decorators
-- `@ApiProperty()` on all DTO fields
-- `@ApiOperation()` on controller methods
-- `@ApiResponse()` for response schemas
-- `@ApiBearerAuth()` on protected routes
-- `@ApiTags()` for route grouping
+**Dependency Injection:**
+- Constructor injection only (no property injection)
+- Use decorators: `@InjectRepository(User)`, `@InjectDataSource()`
+- Example:
+  ```typescript
+  constructor(
+    @InjectRepository(User) private userRepository: Repository<User>,
+    @InjectDataSource() private dataSource: DataSource,
+  ) {}
+  ```
 
-**Example:**
-```typescript
-@ApiProperty({
-  description: 'User email address',
-  example: 'user@example.com',
-  type: String,
-  format: 'email',
-})
-@IsEmail()
-email: string;
-```
+**DTO Validation:**
+- class-validator decorators on DTO properties
+- Common: `@IsString()`, `@IsEmail()`, `@IsUUID()`, `@IsNotEmpty()`, `@IsOptional()`
+- Swagger: `@ApiProperty()`, `@ApiPropertyOptional()`
+- Example: `src/roles/dto/create-role.dto.ts`, `src/proposals/dto/generate-proposal.dto.ts`
 
-## Database Patterns
+**TypeORM Entities:**
+- Decorators: `@Entity()`, `@Column()`, `@PrimaryGeneratedColumn('uuid')`, `@CreateDateColumn()`, `@UpdateDateColumn()`
+- Soft deletes: `is_deleted` boolean column (no `@DeleteDateColumn()`)
+- Naming: snake_case for database columns, camelCase for class properties
+- Example: `src/users/entities/user.entity.ts`
 
-**Entity Decorators:**
-- `@Entity()` on all entity classes
-- `@PrimaryGeneratedColumn('uuid')` for primary keys
-- `@Column()` with type specifications
-- `@CreateDateColumn()`, `@UpdateDateColumn()` for timestamps
-
-**Soft Delete:**
-- `is_deleted` boolean column pattern
-- `is_deleted: false` in find queries
-- No TypeORM soft delete feature used
-
-**Repository Pattern:**
-- TypeORM Repository injected via `@InjectRepository(Entity)`
-- Standard methods: `create()`, `save()`, `findOne()`, `find()`
+**Transactions:**
+- Use `DataSource.transaction()` for atomic operations
+- Example: `src/users/users.service.ts` lines 50-71
+- Pattern: `await this.dataSource.transaction(async (manager) => { ... })`
 
 ---
 
-*Convention analysis: 2026-01-16*
+*Convention analysis: 2026-01-27*
 *Update when patterns change*
