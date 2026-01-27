@@ -8,95 +8,96 @@
 - TypeScript 5.9.3 - All application code (`package.json`, `tsconfig.json`)
 
 **Secondary:**
-- JavaScript - Configuration files, npm scripts
+- JavaScript - Configuration files, debug utilities (`debug-jwt.js`, `nest-cli.json`)
 
 ## Runtime
 
 **Environment:**
-- Node.js v20.19.6
-- No .nvmrc file (version managed externally)
+- Node.js (no explicit version constraint, uses @types/node ^25.0.3) - `package.json`
+- ES2021 target compilation - `tsconfig.json`
 
 **Package Manager:**
-- npm 10.8.2
-- Lockfile: `package-lock.json` present (491 node_modules directories)
+- npm with package-lock.json - `package-lock.json`
+- NestJS CLI 10.4.9 for build and development - `package.json`
 
 ## Frameworks
 
 **Core:**
-- NestJS 10.4.20 - Backend framework with modular architecture (`package.json`, `src/app.module.ts`)
-- Express 5.0.6 - HTTP server (via @nestjs/platform-express)
+- NestJS 10.4.20 - Full-stack Node.js framework with dependency injection - `package.json`, `src/app.module.ts`
+- Express platform (@nestjs/platform-express) - HTTP server - `package.json`
 
 **Testing:**
-- Not detected - No test framework configured
-- `package.json` shows: `"test": "echo \"Error: no test specified\" && exit 1"`
+- No test framework configured - `package.json` (test script: "echo \"Error: no test specified\" && exit 1")
 
 **Build/Dev:**
-- TypeScript compiler 5.9.3 with target ES2021
-- NestJS CLI 10.4.9 for building
-- ts-node 10.9.2 - TypeScript execution
+- TypeScript 5.9.3 - Compilation to JavaScript - `package.json`, `tsconfig.json`
+- ts-node 10.9.2 - TypeScript execution without build step - `package.json`
+- tsconfig-paths 4.2.0 - Path alias resolution (@/*) - `package.json`
+- NestJS Schematics 11.0.9 - Code generation - `package.json`
 
 ## Key Dependencies
 
 **Critical:**
-- `@nestjs/typeorm 11.0.0` - TypeORM integration for database access (`src/app.module.ts`)
-- `typeorm 0.3.28` - ORM for PostgreSQL
-- `@nestjs/bullmq 11.0.4` - Job queue for async processing (`src/queue/queue.module.ts`)
-- `bullmq 5.66.3` - Redis-based queue worker
-- `@nestjs/jwt 11.0.2` - JWT authentication (`src/auth/auth.service.ts`)
-- `@nestjs/passport 11.0.5` - Passport integration for authentication
-- `openai 6.15.0` - Direct OpenAI API client (`src/ai/ai.service.ts`)
-- `@langchain/openai 0.6.17` - LangChain OpenAI integration
-- `langchain 0.3.37` - AI orchestration framework
+- TypeORM 0.3.28 - Database ORM for PostgreSQL - `src/app.module.ts`, `package.json`
+- @nestjs/jwt - JWT token generation/validation - `src/auth/auth.module.ts`, `package.json`
+- @nestjs/passport - Authentication framework integration - `src/auth/auth.module.ts`, `package.json`
+- passport-jwt - JWT strategy for Passport - `package.json`
+- bcrypt 6.0.0 - Password hashing - `src/auth/auth.service.ts`, `package.json`
+- openai 6.15.0 - AI-powered proposal generation - `src/ai/ai.service.ts`, `package.json`
+- @pinecone-database/pinecone 6.1.3 - Vector database for semantic search - `src/knowledge-base/knowledge-base.service.ts`, `package.json`
+- @supabase/supabase-js 2.78.0 - Cloud storage - `src/storage/storage.service.ts`, `package.json`
 
 **Infrastructure:**
-- `@supabase/supabase-js 2.78.0` - File storage client (`src/storage/storage.service.ts`)
-- `@pinecone-database/pinecone 6.1.3` - Vector database (`src/knowledge-base/knowledge-base.service.ts`)
-- `ioredis 5.8.2` - Redis client for caching and queues
-- `axios 1.13.2` - HTTP client for external API calls
-- `bcrypt 6.0.0` - Password hashing (`src/auth/auth.service.ts`)
+- BullMQ 5.66.3 - Job queue for async processing - `src/queue/queue.module.ts`, `package.json`
+- @nestjs/bullmq - NestJS integration for BullMQ - `package.json`
+- ioredis 5.8.2 - Redis client for job queues - `package.json`
+- class-validator 0.14.3 - DTO validation - `package.json`
+- class-transformer 0.5.1 - DTO transformation - `package.json`
+- @nestjs/config - Environment variable management - `src/app.module.ts`, `package.json`
+- @nestjs/swagger 8.1.1 - API documentation - `src/main.ts`, `package.json`
 
-**Document Processing:**
-- `pdf-parse 2.4.5` - PDF text extraction (`src/knowledge-base/knowledge-base.service.ts`)
-- `mammoth 1.11.0` - DOCX text extraction
-- `fluent-ffmpeg 2.1.3` - Audio processing (`src/ai/audio-chunking.service.ts`)
-- `@ffmpeg-installer/ffmpeg 1.1.0` - FFmpeg binary
-- `marked 15.0.12` - Markdown to HTML conversion (`src/proposals/proposals.service.ts`)
-- `handlebars 4.7.8` - Template engine
-- `puppeteer 24.34.0` - Headless browser for PDF generation (`src/templates/templates.service.ts`)
+**AI & Document Processing:**
+- @langchain/core 0.3.80 - AI agent orchestration - `package.json`
+- @langchain/openai 0.6.17 - LangChain OpenAI integration - `package.json`
+- puppeteer 24.34.0 - HTML to PDF conversion - `src/templates/templates.service.ts`, `package.json`
+- handlebars 4.7.8 - Template rendering - `src/templates/templates.service.ts`, `package.json`
+- marked 15.0.12 - Markdown to HTML conversion - `src/templates/templates.service.ts`, `package.json`
+- pdf-parse 2.4.5 - PDF text extraction - `src/knowledge-base/knowledge-base.service.ts`, `package.json`
+- mammoth 1.11.0 - DOCX text extraction - `src/knowledge-base/knowledge-base.service.ts`, `package.json`
+- @ffmpeg-installer/ffmpeg 1.1.0 - Audio processing - `src/ai/audio-chunking.service.ts`, `package.json`
+- fluent-ffmpeg 2.1.3 - FFmpeg wrapper - `src/ai/audio-chunking.service.ts`, `package.json`
 
-**Validation:**
-- `class-validator 0.14.3` - DTO validation
-- `class-transformer 0.5.1` - DTO serialization
-- `passport-jwt 4.0.1` - JWT strategy
+**Utilities:**
+- axios 1.13.2 - HTTP client - `src/storage/storage.service.ts`, `package.json`
+- uuid 9.0.1 - Unique identifier generation - `package.json`
+- RxJS 7.8.2 - Reactive programming (NestJS core dependency) - `package.json`
 
 ## Configuration
 
 **Environment:**
-- `.env` file with environment variables (currently committed to repo - security concern)
-- ConfigService from @nestjs/config for runtime configuration (`src/app.module.ts`)
-- Global configuration module with forRoot pattern
+- `.env` file with environment variables - `src/app.module.ts`, `.env`
+- @nestjs/config ConfigModule for env management
+- Key variables: DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, PINECONE_API_KEY, SUPABASE_URL, REDIS_HOST
 
 **Build:**
-- `tsconfig.json` - TypeScript compiler options
-  - Target: ES2021
-  - Module: CommonJS
-  - Path aliases: `@/*` maps to `src/*`
-  - Decorators enabled for NestJS
+- `tsconfig.json` - TypeScript compiler options (ES2021 target, CommonJS modules, strict null checks)
+- `nest-cli.json` - NestJS CLI configuration
+- Path alias: `@/*` maps to `src/*`
 
 ## Platform Requirements
 
 **Development:**
-- Any platform with Node.js 20.x
-- PostgreSQL 12+ database access
-- Redis instance for queue management
+- Linux/macOS/Windows (Node.js compatible)
+- PostgreSQL database server
+- Redis server for job queues
+- FFmpeg for audio processing
 
 **Production:**
-- Node.js 20.19.6
-- PostgreSQL database (currently: postgres.techware.co.in:32805)
-- Redis (currently: 156.67.214.146:7379)
-- Supabase for file storage
-- OpenAI API access
-- Pinecone vector database access
+- PostgreSQL database: postgres.techware.co.in:32805 - `.env`
+- Redis server: 156.67.214.146:7379 - `.env`
+- External services: OpenAI API, Pinecone, Supabase Storage
+- Node.js runtime environment
+- Port 3000 (configurable via PORT env var) - `src/main.ts`
 
 ---
 

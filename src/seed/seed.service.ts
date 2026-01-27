@@ -5,6 +5,7 @@ import { Repository, DataSource } from 'typeorm';
 import { Organization } from '../organizations/entities/organization.entity';
 import { Role } from '../roles/entities/role.entity';
 import { User } from '../users/entities/user.entity';
+import { Plan } from '../plans/entities/plan.entity';
 
 @Injectable()
 export class SeedService {
@@ -17,6 +18,8 @@ export class SeedService {
     private roleRepository: Repository<Role>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(Plan)
+    private planRepository: Repository<Plan>,
     @InjectDataSource()
     private dataSource: DataSource,
   ) {
@@ -64,6 +67,20 @@ export class SeedService {
       const savedUser = await manager.save(User, user);
       this.logger.log(`[SEED] User inserted with ID: ${savedUser.id}`);
 
+      // 4. Seed Free Plan
+      this.logger.log(`[SEED] Inserting Free Plan`);
+      const plan = manager.create(Plan, {
+        id: 'ceb2e568-b6e9-40c0-8079-51996e299b1f',
+        plan_code: 'free_plan',
+        name: 'Free',
+        description: 'The Free plan.',
+        price: 0,
+        is_active: true,
+        is_deleted: false,
+      });
+      const savedPlan = await manager.save(Plan, plan);
+      this.logger.log(`[SEED] Free Plan inserted with ID: ${savedPlan.id}`);
+
       this.logger.log(`[SEED] Seed operation completed successfully`);
 
       return {
@@ -73,6 +90,7 @@ export class SeedService {
           organization: { id: savedOrganization.id, name: savedOrganization.name },
           role: { id: savedRole.id, name: savedRole.name },
           user: { id: savedUser.id, email: savedUser.email },
+          plan: { id: savedPlan.id, name: savedPlan.name },
         },
       };
     });

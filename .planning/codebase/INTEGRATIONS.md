@@ -10,8 +10,8 @@
   - Auth: OPENAI_API_KEY environment variable (`.env`)
   - Models used:
     - GPT models for text generation (general info, scope, timeline agents)
-    - Whisper-1 for audio transcription (`src/ai/ai.service.ts` line 98)
-    - text-embedding-3-large for embeddings (`src/knowledge-base/knowledge-base.service.ts` line 36)
+    - Whisper-1 for audio transcription
+    - text-embedding-3-large for embeddings (3072 dimensions)
   - AI Agents:
     - GeneralInfoAgent - `src/ai/agents/general-info.agent.ts`
     - ScopeAgent - `src/ai/agents/scope.agent.ts`
@@ -26,12 +26,12 @@
 ## Data Storage
 
 **Databases:**
-- **PostgreSQL 12+** - Primary relational database
+- **PostgreSQL** - Primary relational database
   - Host: postgres.techware.co.in:32805 (`.env`)
   - Database: Project_proposal_generator
   - Client: TypeORM 0.3.28 (`src/app.module.ts`)
   - Connection: DATABASE_URL or individual DB_* env vars
-  - SSL: Currently disabled (DB_SSL=false)
+  - SSL: Currently disabled (DB_SSL=false) - security concern
   - Entities: users, organizations, roles, permissions, proposals, templates, subscriptions, plans, features, tags
   - Schema: `table_schema.txt` in root directory
 
@@ -42,7 +42,7 @@
   - API Key: PINECONE_API_KEY environment variable
   - Embedding dimensions: 3072 (text-embedding-3-large)
   - Purpose: Semantic search and knowledge base indexing
-  - Namespace-based proposal organization (line 74)
+  - Namespace-based proposal organization
 
 **File Storage:**
 - **Supabase Storage** - `src/storage/storage.service.ts`
@@ -57,7 +57,7 @@
 - **Redis** - `src/app.module.ts`, `.env`
   - Host: 156.67.214.146:7379
   - Client: ioredis 5.8.2
-  - Password: Not set (REDIS_PASSWORD is empty - security concern)
+  - Password: Not set (REDIS_PASSWORD is empty - CRITICAL security concern)
   - Purpose: BullMQ job queue state management
 
 - **BullMQ** - `src/queue/queue.module.ts`
@@ -77,8 +77,8 @@
   - Expiration: 24h (JWT_EXPIRES_IN)
   - Strategy: Passport JWT (`src/auth/strategies/jwt.strategy.ts`)
   - Guards: `src/auth/guards/jwt-auth.guard.ts`, `src/auth/guards/permissions.guard.ts`
-  - Token generation: `src/auth/auth.service.ts` line 58
-  - Password hashing: bcrypt 6.0.0 (line 39)
+  - Token generation: `src/auth/auth.service.ts`
+  - Password hashing: bcrypt 6.0.0
 
 **Authorization:**
 - Role-based access control (RBAC)
@@ -92,12 +92,12 @@
 
 **PDF Processing:**
 - pdf-parse 2.4.5
-  - Location: `src/knowledge-base/knowledge-base.service.ts` line 227
+  - Location: `src/knowledge-base/knowledge-base.service.ts`
   - Purpose: Extract text from multi-page PDFs
 
 **Word Document Processing:**
 - mammoth 1.11.0
-  - Location: `src/knowledge-base/knowledge-base.service.ts` line 269
+  - Location: `src/knowledge-base/knowledge-base.service.ts`
   - Purpose: Extract raw text from DOCX files
 
 **Audio Processing:**
