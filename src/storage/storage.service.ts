@@ -19,22 +19,60 @@ export class StorageService {
     this.supabase = createClient(this.supabaseUrl, supabaseServiceKey);
   }
 
+  private parseStoragePath(storagePath: string): {
+    bucket: string;
+    filePath: string;
+  } {
+    const pathParts = storagePath.split("/");
+    if (pathParts.length < 2) {
+      throw new Error(
+        "Invalid storage path format. Expected: bucket-name/path/to/file"
+      );
+    }
+    return {
+      bucket: pathParts[0],
+      filePath: pathParts.slice(1).join("/"),
+    };
+  }
+
+  private async downloadFromUrl(url: string): Promise<Buffer> {
+    const response = await axios.get(url, {
+      headers: {
+        apikey: this.supabaseAnonKey,
+      },
+      responseType: "arraybuffer",
+      timeout: 120000,
+    });
+    return Buffer.from(response.data);
+  }
+
+  private async downloadFromStoragePath(storagePath: string): Promise<Buffer> {
+    const { bucket, filePath } = this.parseStoragePath(storagePath);
+    const { data, error } = await this.supabase.storage
+      .from(bucket)
+      .download(filePath);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const arrayBuffer = await data.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
   async downloadAudio(audioPath: string): Promise<Buffer> {
     this.logger.log(`Downloading audio from: ${audioPath}`);
 
     try {
-      const response = await axios.get(audioPath, {
-        headers: {
-          apikey: this.supabaseAnonKey,
-        },
-        responseType: "arraybuffer",
-        timeout: 120000, // 2 minutes for large file download
-      });
+      const isUrl = audioPath.startsWith("http");
+      const buffer = isUrl
+        ? await this.downloadFromUrl(audioPath)
+        : await this.downloadFromStoragePath(audioPath);
 
       this.logger.log(
-        `Audio downloaded successfully, size: ${response.data.byteLength} bytes`
+        `Audio downloaded successfully, size: ${buffer.length} bytes`
       );
-      return Buffer.from(response.data);
+      return buffer;
     } catch (error: any) {
       this.logger.error(
         `Failed to download audio from ${audioPath}: ${error.message}`
@@ -47,18 +85,15 @@ export class StorageService {
     this.logger.log(`Downloading document from: ${documentPath}`);
 
     try {
-      const response = await axios.get(documentPath, {
-        headers: {
-          apikey: this.supabaseAnonKey,
-        },
-        responseType: "arraybuffer",
-        timeout: 120000, // 2 minutes for large file download
-      });
+      const isUrl = documentPath.startsWith("http");
+      const buffer = isUrl
+        ? await this.downloadFromUrl(documentPath)
+        : await this.downloadFromStoragePath(documentPath);
 
       this.logger.log(
-        `Document downloaded successfully, size: ${response.data.byteLength} bytes`
+        `Document downloaded successfully, size: ${buffer.length} bytes`
       );
-      return Buffer.from(response.data);
+      return buffer;
     } catch (error: any) {
       this.logger.error(
         `Failed to download document from ${documentPath}: ${error.message}`

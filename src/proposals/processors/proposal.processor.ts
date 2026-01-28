@@ -6,6 +6,7 @@ import { StorageService } from '../../storage/storage.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { AIService } from '../../ai/ai.service';
 import { UtilsService } from '../../common/utils.service';
+import { UsageCountersService } from '../../usage-counters/usage-counters.service';
 import { ProposalJobData } from '../entities/proposal.entity';
 
 @Processor('proposal-generation')
@@ -18,6 +19,7 @@ export class ProposalProcessor extends WorkerHost {
     private knowledgeBaseService: KnowledgeBaseService,
     private aiService: AIService,
     private utilsService: UtilsService,
+    private usageCountersService: UsageCountersService,
   ) {
     super();
   }
@@ -103,6 +105,15 @@ export class ProposalProcessor extends WorkerHost {
         timelineOutput,
       );
       this.logger.log(`[STEP 6] Proposal saved with status: approval_pending`);
+
+      // Increment usage counter after successful generation
+      if (jobData.subscription_id) {
+        await this.usageCountersService.incrementUsage(
+          jobData.subscription_id,
+          'proposal_number',
+        );
+        this.logger.log(`[STEP 7] Usage counter incremented for subscription: ${jobData.subscription_id}`);
+      }
 
       const totalTime = Date.now() - startTime;
       this.logger.log(`[JOB COMPLETE] Proposal ${jobData.id} completed in ${totalTime}ms`);

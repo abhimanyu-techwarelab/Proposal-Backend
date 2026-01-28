@@ -34,6 +34,8 @@ import { Feature } from "./features/entities/feature.entity";
 import { Plan } from "./plans/entities/plan.entity";
 import { PlanFeature } from "./plans/entities/plan-feature.entity";
 import { Subscription } from "./subscriptions/entities/subscription.entity";
+import { UsageCounter } from "./usage-counters/entities/usage-counter.entity";
+import { UsageCountersModule } from "./usage-counters/usage-counters.module";
 
 @Module({
   imports: [
@@ -64,6 +66,7 @@ import { Subscription } from "./subscriptions/entities/subscription.entity";
           Plan,
           PlanFeature,
           Subscription,
+          UsageCounter,
         ],
         synchronize: false,
         ssl:
@@ -105,6 +108,7 @@ import { Subscription } from "./subscriptions/entities/subscription.entity";
     FeaturesModule,
     PlansModule,
     SubscriptionsModule,
+    UsageCountersModule,
     DashboardModule,
   ],
 })

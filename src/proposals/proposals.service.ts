@@ -306,6 +306,38 @@ export class ProposalsService {
     proposal: Proposal,
     dto: GenerateProposalDto
   ): Promise<void> {
+    // Resolve storage paths to signed URLs so the processor can download via HTTP
+    // If the paths are already signed URLs (from frontend), pass them through directly
+    const audioSignedUrls: string[] = [];
+    if (proposal.audio_storage_paths?.length) {
+      for (const path of proposal.audio_storage_paths) {
+        if (path.startsWith('http')) {
+          audioSignedUrls.push(path);
+        } else {
+          const fullPath = `proposal-audio/${path}`;
+          const { signedUrls } = await this.storageService.getSignedUrls([fullPath]);
+          if (signedUrls[0]?.signedUrl) {
+            audioSignedUrls.push(signedUrls[0].signedUrl);
+          }
+        }
+      }
+    }
+
+    const documentSignedUrls: string[] = [];
+    if (proposal.document_storage_paths?.length) {
+      for (const path of proposal.document_storage_paths) {
+        if (path.startsWith('http')) {
+          documentSignedUrls.push(path);
+        } else {
+          const fullPath = `proposal-documents/${path}`;
+          const { signedUrls } = await this.storageService.getSignedUrls([fullPath]);
+          if (signedUrls[0]?.signedUrl) {
+            documentSignedUrls.push(signedUrls[0].signedUrl);
+          }
+        }
+      }
+    }
+
     const jobData: ProposalJobData = {
       id: proposal.id,
       subscription_id: proposal.subscription_id,
@@ -316,8 +348,8 @@ export class ProposalsService {
       client_email: proposal.client_email,
       links: proposal.links,
       industry: proposal.industry,
-      audio_storage_paths: proposal.audio_storage_paths,
-      document_storage_paths: proposal.document_storage_paths,
+      audio_storage_paths: audioSignedUrls,
+      document_storage_paths: documentSignedUrls,
       summary: proposal.summary,
       goals: proposal.goals,
       scope: proposal.scope,
@@ -1346,21 +1378,14 @@ export class ProposalsService {
   }
 
   async submitDraft(proposalId: string): Promise<{ id: string }> {
-    this.logger.log(`[DRAFT] Submitting draft for generation: ${proposalId}`);
+    this.logger.log(`[SUBMIT] Submitting proposal for generation: ${proposalId}`);
 
     const proposal = await this.proposalRepository.findOne({
       where: { id: proposalId },
     });
 
     if (!proposal) {
-      throw new HttpException("Draft proposal not found", HttpStatus.NOT_FOUND);
-    }
-
-    if (proposal.status !== "draft") {
-      throw new HttpException(
-        "Can only submit draft proposals",
-        HttpStatus.BAD_REQUEST
-      );
+      throw new HttpException("Proposal not found", HttpStatus.NOT_FOUND);
     }
 
     // Update status to processing
@@ -1368,6 +1393,38 @@ export class ProposalsService {
       { id: proposalId },
       { status: "processing" }
     );
+
+    // Resolve storage paths to signed URLs so the processor can download via HTTP
+    // If the paths are already signed URLs, pass them through directly
+    const audioSignedUrls: string[] = [];
+    if (proposal.audio_storage_paths?.length) {
+      for (const path of proposal.audio_storage_paths) {
+        if (path.startsWith('http')) {
+          audioSignedUrls.push(path);
+        } else {
+          const fullPath = `proposal-audio/${path}`;
+          const { signedUrls } = await this.storageService.getSignedUrls([fullPath]);
+          if (signedUrls[0]?.signedUrl) {
+            audioSignedUrls.push(signedUrls[0].signedUrl);
+          }
+        }
+      }
+    }
+
+    const documentSignedUrls: string[] = [];
+    if (proposal.document_storage_paths?.length) {
+      for (const path of proposal.document_storage_paths) {
+        if (path.startsWith('http')) {
+          documentSignedUrls.push(path);
+        } else {
+          const fullPath = `proposal-documents/${path}`;
+          const { signedUrls } = await this.storageService.getSignedUrls([fullPath]);
+          if (signedUrls[0]?.signedUrl) {
+            documentSignedUrls.push(signedUrls[0].signedUrl);
+          }
+        }
+      }
+    }
 
     // Create job data
     const jobData: ProposalJobData = {
@@ -1380,14 +1437,14 @@ export class ProposalsService {
       client_email: proposal.client_email,
       links: proposal.links,
       industry: proposal.industry,
-      audio_storage_paths: proposal.audio_storage_paths,
-      document_storage_paths: proposal.document_storage_paths,
+      audio_storage_paths: audioSignedUrls,
+      document_storage_paths: documentSignedUrls,
       summary: proposal.summary,
       goals: proposal.goals,
       scope: proposal.scope,
       deliverables: proposal.deliverables,
-      start_date: proposal.start_date?.toISOString(),
-      end_date: proposal.end_date?.toISOString(),
+      start_date: proposal.start_date ? new Date(proposal.start_date).toISOString() : undefined,
+      end_date: proposal.end_date ? new Date(proposal.end_date).toISOString() : undefined,
       milestones: proposal.milestones as object[],
       total_budget: proposal.total_budget,
       currency: proposal.currency,
@@ -1405,7 +1462,7 @@ export class ProposalsService {
       },
     });
 
-    this.logger.log(`[DRAFT] Draft submitted to generation queue: ${proposalId}`);
+    this.logger.log(`[SUBMIT] Proposal submitted to generation queue: ${proposalId}`);
     return { id: proposalId };
   }
 }

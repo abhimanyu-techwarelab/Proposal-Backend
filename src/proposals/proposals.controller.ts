@@ -31,9 +31,12 @@ import { CreateDraftDto } from "./dto/create-draft.dto";
 import { UpdateDraftDto } from "./dto/update-draft.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
+import { UsageLimitGuard } from "../usage-counters/guards/usage-limit.guard";
 import { RequirePermission } from "../auth/decorators/require-permission.decorator";
+import { CheckUsage } from "../usage-counters/decorators/check-usage.decorator";
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { JwtPayload } from "../auth/interfaces/jwt-payload.interface";
+import { UsageCountersService } from "../usage-counters/usage-counters.service";
 
 @ApiTags("proposals")
 @ApiBearerAuth("JWT-auth")
@@ -44,10 +47,13 @@ export class ProposalsController {
 
   constructor(
     private readonly proposalsService: ProposalsService,
+    private readonly usageCountersService: UsageCountersService,
     @InjectQueue("proposal-generation") private readonly proposalQueue: Queue
   ) {}
 
   @Post("generate")
+  @CheckUsage("proposal_number")
+  @UseGuards(UsageLimitGuard)
   @ApiOperation({
     summary: "Generate a new proposal",
     description:
@@ -74,7 +80,11 @@ export class ProposalsController {
   })
   @ApiResponse({ status: 400, description: "Bad request - validation error" })
   @ApiResponse({ status: 401, description: "Unauthorized" })
-  async generateProposal(@Body() dto: GenerateProposalDto) {
+  @ApiResponse({ status: 403, description: "Usage limit exceeded" })
+  async generateProposal(
+    @Body() dto: GenerateProposalDto,
+    @CurrentUser("organization_id") organizationId: string
+  ) {
     this.logger.log(`[REQUEST] POST /product/proposals/generate`);
 
     const startTime = Date.now();
@@ -999,6 +1009,8 @@ export class ProposalsController {
 
   @Post(":id/submit")
   @RequirePermission("create_proposals_product")
+  @CheckUsage("proposal_number")
+  @UseGuards(UsageLimitGuard)
   @ApiOperation({
     summary: "Submit a draft for generation",
     description:
@@ -1017,6 +1029,7 @@ export class ProposalsController {
       },
     },
   })
+  @ApiResponse({ status: 403, description: "Usage limit exceeded" })
   async submitDraft(
     @Param("id") id: string,
     @CurrentUser() user: JwtPayload

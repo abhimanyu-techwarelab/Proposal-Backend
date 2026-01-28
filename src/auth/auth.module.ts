@@ -32,6 +32,6 @@ import { Permission } from '../permissions/entities/permission.entity';
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, JwtAuthGuard, PermissionsGuard],
-  exports: [AuthService, JwtStrategy, PassportModule, JwtAuthGuard, PermissionsGuard],
+  exports: [AuthService, JwtStrategy, PassportModule, JwtAuthGuard, PermissionsGuard, JwtModule],
 })
 export class AuthModule {}

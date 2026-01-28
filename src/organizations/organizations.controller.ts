@@ -2,7 +2,6 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, Logger, UseGuar
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { OrganizationsService } from './organizations.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
-import { AddUserToOrganizationDto } from './dto/add-user-to-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
@@ -16,7 +15,9 @@ import { Public } from '../auth/decorators/public.decorator';
 export class OrganizationsController {
   private readonly logger = new Logger(OrganizationsController.name);
 
-  constructor(private readonly organizationsService: OrganizationsService) {}
+  constructor(
+    private readonly organizationsService: OrganizationsService,
+  ) {}
 
   @Post('create')
   @Public()
@@ -68,28 +69,6 @@ export class OrganizationsController {
     const result = await this.organizationsService.softDelete(id);
 
     this.logger.log(`[RESPONSE] 200 OK - id: ${result.id} - ${Date.now() - startTime}ms`);
-
-    return result;
-  }
-
-  @Post('add-user')
-  @ApiOperation({
-    summary: 'Add user to organization',
-    description: 'Adds an existing user to an organization.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'User added to organization successfully',
-  })
-  @ApiResponse({ status: 400, description: 'Bad request - validation error' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async addUser(@Body() dto: AddUserToOrganizationDto) {
-    this.logger.log(`[REQUEST] POST /organizations/add-user`);
-
-    const startTime = Date.now();
-    const result = await this.organizationsService.addUserToOrganization(dto);
-
-    this.logger.log(`[RESPONSE] 200 OK - user: ${result.id} added to org: ${result.organization_id} - ${Date.now() - startTime}ms`);
 
     return result;
   }

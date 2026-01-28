@@ -10,6 +10,7 @@ import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
 import { AIModule } from '../ai/ai.module';
 import { TemplatesModule } from '../templates/templates.module';
 import { CommonModule } from '../common/common.module';
+import { UsageCountersModule } from '../usage-counters/usage-counters.module';
 import { Proposal } from './entities/proposal.entity';
 
 @Module({
@@ -26,6 +27,7 @@ import { Proposal } from './entities/proposal.entity';
     AIModule,
     TemplatesModule,
     CommonModule,
+    UsageCountersModule,
   ],
   controllers: [ProposalsController],
   providers: [ProposalsService, ProposalProcessor, ExtractionProcessor],

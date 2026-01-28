@@ -7,11 +7,15 @@ import {
   Body,
   Query,
   Param,
+  Req,
   Logger,
   BadRequestException,
+  ForbiddenException,
   UseGuards,
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from "@nestjs/swagger";
+import { JwtService } from "@nestjs/jwt";
+import { Request } from "express";
 import { UsersService } from "./users.service";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
@@ -21,6 +25,7 @@ import { RequirePermission } from "../auth/decorators/require-permission.decorat
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { JwtPayload } from "../auth/interfaces/jwt-payload.interface";
 import { Public } from "../auth/decorators/public.decorator";
+import { UsageCountersService } from "../usage-counters/usage-counters.service";
 
 @ApiTags('users')
 @ApiBearerAuth('JWT-auth')
@@ -29,7 +34,11 @@ import { Public } from "../auth/decorators/public.decorator";
 export class UsersController {
   private readonly logger = new Logger(UsersController.name);
 
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly usageCountersService: UsageCountersService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   @Post("create")
   @Public()
@@ -55,11 +64,54 @@ export class UsersController {
   @ApiResponse({ status: 400, description: 'Bad request - validation error' })
   @ApiResponse({ status: 401, description: 'Unauthorized - invalid or missing JWT token' })
   @ApiResponse({ status: 403, description: 'Forbidden - insufficient permissions' })
-  async create(@Body() dto: CreateUserDto) {
+  async create(@Body() dto: CreateUserDto, @Req() req: Request) {
     this.logger.log(`[REQUEST] POST /users/create`);
 
     const startTime = Date.now();
+    let isProductApp = false;
+
+    // Check usage limit for product app requests before creating the user
+    if (dto.organization_id) {
+      try {
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        if (token) {
+          const payload = this.jwtService.verify<JwtPayload>(token);
+          isProductApp = payload.permissions?.includes('create_users_product') ?? false;
+          if (isProductApp) {
+            const usage = await this.usageCountersService.checkLimit(
+              dto.organization_id,
+              'user_number',
+            );
+            if (!usage.allowed) {
+              throw new ForbiddenException({
+                statusCode: 403,
+                message: `You have reached your plan's user limit (${usage.limit}). Please upgrade your plan to add more users.`,
+                error: 'USAGE_LIMIT_EXCEEDED',
+                current_usage: usage.current_usage,
+                limit: usage.limit,
+              });
+            }
+          }
+        }
+      } catch (error) {
+        if (error instanceof ForbiddenException) {
+          throw error;
+        }
+        this.logger.warn(
+          `[CREATE] Could not parse JWT for usage check: ${error?.message || error}`,
+        );
+      }
+    }
+
     const result = await this.usersService.create(dto);
+
+    // Increment usage counter after successful creation (product app only)
+    if (dto.organization_id && isProductApp) {
+      await this.usageCountersService.incrementUsageByOrganization(
+        dto.organization_id,
+        'user_number',
+      );
+    }
 
     this.logger.log(
       `[RESPONSE] 201 Created - id: ${result.id} - ${Date.now() - startTime}ms`

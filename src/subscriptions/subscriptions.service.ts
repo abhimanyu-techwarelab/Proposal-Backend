@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, MoreThan, IsNull } from 'typeorm';
 import { Subscription } from './entities/subscription.entity';
@@ -9,6 +9,8 @@ const DEFAULT_FREE_PLAN_ID = 'ceb2e568-b6e9-40c0-8079-51996e299b1f';
 
 @Injectable()
 export class SubscriptionsService {
+  private readonly logger = new Logger(SubscriptionsService.name);
+
   constructor(
     @InjectRepository(Subscription)
     private subscriptionRepository: Repository<Subscription>,
@@ -33,24 +35,46 @@ export class SubscriptionsService {
       },
     });
 
-    // If not found, try to find with null expiration (lifetime)
-    if (!subscription) {
-      subscription = await this.subscriptionRepository.findOne({
-        where: {
-          organization_id: organizationId,
-          status: In(['active', 'trialing', 'past_due']),
-          current_period_end: IsNull(),
-        },
-      });
+    if (subscription) {
+      this.logger.log(
+        `[FIND_ACTIVE] Found subscription ${subscription.id} (status: ${subscription.status}, period_end: ${subscription.current_period_end}) for org ${organizationId}`,
+      );
+      return subscription;
     }
 
-    if (!subscription) {
-      throw new NotFoundException(
-        'No active subscription found for this organization',
+    // If not found, try to find with null expiration (lifetime)
+    subscription = await this.subscriptionRepository.findOne({
+      where: {
+        organization_id: organizationId,
+        status: In(['active', 'trialing', 'past_due']),
+        current_period_end: IsNull(),
+      },
+    });
+
+    if (subscription) {
+      this.logger.log(
+        `[FIND_ACTIVE] Found lifetime subscription ${subscription.id} (status: ${subscription.status}) for org ${organizationId}`,
+      );
+      return subscription;
+    }
+
+    // Debug: check if ANY subscription exists for this org (regardless of status/period)
+    const anySubscription = await this.subscriptionRepository.findOne({
+      where: { organization_id: organizationId },
+    });
+    if (anySubscription) {
+      this.logger.warn(
+        `[FIND_ACTIVE] Subscription exists for org ${organizationId} but NOT active. id: ${anySubscription.id}, status: "${anySubscription.status}", period_end: ${anySubscription.current_period_end}`,
+      );
+    } else {
+      this.logger.warn(
+        `[FIND_ACTIVE] No subscription at all for org ${organizationId}`,
       );
     }
 
-    return subscription;
+    throw new NotFoundException(
+      'No active subscription found for this organization',
+    );
   }
 
   /**

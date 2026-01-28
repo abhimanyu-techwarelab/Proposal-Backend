@@ -71,11 +71,11 @@ export class RolesController {
   }
 
   @Get()
-  @RequirePermission("read_role", "read_roles_product")
+  @RequirePermission("read_role", "read_roles_product", "create_users_product")
   @ApiOperation({
     summary: "Get all roles",
     description:
-      "Retrieves a list of roles for a specific organization with optional pagination. Requires read_role or read_roles_product permission.",
+      "Retrieves a list of roles for a specific organization with optional pagination. Requires read_role, read_roles_product, or create_users_product permission.",
   })
   @ApiQuery({
     name: "organization_id",
@@ -152,11 +152,11 @@ export class RolesController {
   }
 
   @Get(":id")
-  @RequirePermission("read_role", "read_roles_product")
+  @RequirePermission("read_role", "read_roles_product", "create_users_product")
   @ApiOperation({
     summary: "Get role by ID",
     description:
-      "Retrieves a specific role by its ID. Requires read_role or read_roles_product permission.",
+      "Retrieves a specific role by its ID. Requires read_role, read_roles_product, or create_users_product permission.",
   })
   @ApiParam({
     name: "id",

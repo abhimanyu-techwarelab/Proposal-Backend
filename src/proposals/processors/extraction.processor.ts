@@ -45,6 +45,7 @@ export class ExtractionProcessor extends WorkerHost {
       let processedFiles = 0;
 
       // Process documents
+      const failedDocs: string[] = [];
       for (const url of documentUrls) {
         try {
           this.logger.log(
@@ -74,13 +75,15 @@ export class ExtractionProcessor extends WorkerHost {
             `Processing documents (${processedFiles}/${documentUrls.length})`,
           );
         } catch (error: any) {
-          this.logger.warn(
+          this.logger.error(
             `[EXTRACTION] Failed to process document: ${error.message}`,
           );
+          failedDocs.push(error.message);
         }
       }
 
       // Process audio files
+      const failedAudio: string[] = [];
       for (let i = 0; i < audioUrls.length; i++) {
         const url = audioUrls[i];
         try {
@@ -109,10 +112,25 @@ export class ExtractionProcessor extends WorkerHost {
 
           processedFiles++;
         } catch (error: any) {
-          this.logger.warn(
+          this.logger.error(
             `[EXTRACTION] Failed to process audio: ${error.message}`,
           );
+          failedAudio.push(error.message);
         }
+      }
+
+      // Fail if no content was extracted from any file
+      if (!combinedDocumentText.trim() && !combinedAudioText.trim()) {
+        const errors = [...failedDocs, ...failedAudio];
+        throw new Error(
+          `Failed to extract content from any file. Errors: ${errors.join('; ')}`,
+        );
+      }
+
+      if (failedDocs.length > 0 || failedAudio.length > 0) {
+        this.logger.warn(
+          `[EXTRACTION] Partial failures - docs: ${failedDocs.length}/${documentUrls.length}, audio: ${failedAudio.length}/${audioUrls.length}`,
+        );
       }
 
       // Update progress: Extracting fields
@@ -145,8 +163,8 @@ export class ExtractionProcessor extends WorkerHost {
         summary: currentProposal.summary || undefined,
         goals: currentProposal.goals || undefined,
         scope: currentProposal.scope || undefined,
-        startDate: currentProposal.start_date?.toISOString().split('T')[0] || undefined,
-        endDate: currentProposal.end_date?.toISOString().split('T')[0] || undefined,
+        startDate: currentProposal.start_date ? new Date(currentProposal.start_date).toISOString().split('T')[0] : undefined,
+        endDate: currentProposal.end_date ? new Date(currentProposal.end_date).toISOString().split('T')[0] : undefined,
         totalBudget: currentProposal.total_budget || undefined,
         currency: currentProposal.currency || undefined,
         billingType: currentProposal.billing_type || undefined,

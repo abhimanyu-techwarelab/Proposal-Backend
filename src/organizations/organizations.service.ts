@@ -4,7 +4,6 @@ import { Repository } from 'typeorm';
 import { Organization } from './entities/organization.entity';
 import { User } from '../users/entities/user.entity';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
-import { AddUserToOrganizationDto } from './dto/add-user-to-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { RolesService } from '../roles/roles.service';
 import { PermissionsService } from '../permissions/permissions.service';
@@ -131,33 +130,6 @@ export class OrganizationsService {
     this.logger.log(`[SOFT_DELETE] Organization and its users soft deleted: ${id}`);
 
     return updatedOrganization;
-  }
-
-  async addUserToOrganization(dto: AddUserToOrganizationDto): Promise<User> {
-    this.logger.log(`[ADD_USER] Adding user ${dto.user_id} to organization ${dto.organization_id}`);
-
-    const organization = await this.organizationRepository.findOne({
-      where: { id: dto.organization_id, is_deleted: false },
-    });
-
-    if (!organization) {
-      throw new NotFoundException(`Organization with ID ${dto.organization_id} not found`);
-    }
-
-    const user = await this.userRepository.findOne({
-      where: { id: dto.user_id, is_deleted: false },
-    });
-
-    if (!user) {
-      throw new NotFoundException(`User with ID ${dto.user_id} not found`);
-    }
-
-    user.organization_id = dto.organization_id;
-    const updatedUser = await this.userRepository.save(user);
-
-    this.logger.log(`[ADD_USER] User ${dto.user_id} added to organization ${dto.organization_id}`);
-
-    return updatedUser;
   }
 
   async update(id: string, dto: UpdateOrganizationDto): Promise<Organization> {
